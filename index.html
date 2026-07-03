@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PIAT — Academic Management System</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Manrope:wght@400;500;600;700&display=swap" />
+    <link rel="stylesheet" href="/@tanstack-start/styles.css?routes=__root__%2C%2F" data-tanstack-router-dev-styles="true" />
+  </head>
+  <body>
+    <noscript><style>.max-w-sm{opacity:1!important;transform:none!important}</style></noscript>
+    <!--$-->
+    <div class="flex min-h-screen items-center justify-center bg-gradient-to-br from-maroon-primary to-maroon-light px-4">
+      <div class="w-full max-w-sm" style="opacity:0;transform:translateY(20px)">
+        <div class="mb-8 text-center">
+          <h1 class="font-heading text-2xl font-bold text-maroon-primary">PIAT</h1>
+          <p class="mt-1 text-sm text-muted-foreground">Philtech Institute Of Arts And Technology</p>
+          <p class="mt-1 text-xs text-muted-foreground">Academic Management System</p>
+        </div>
+        <div class="rounded-2xl border bg-card p-6 shadow-sm">
+          <h2 class="font-heading text-lg font-semibold text-card-foreground mb-1">User Login</h2>
+          <p class="text-xs text-muted-foreground mb-4">Sign in with your registered email and password</p>
+          <form class="space-y-4">
+            <div>
+              <label class="text-xs font-medium text-muted-foreground">Email</label>
+              <input type="email" required class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm" />
+            </div>
+            <div>
+              <label class="text-xs font-medium text-muted-foreground">Password</label>
+              <input type="password" required class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm" />
+            </div>
+            <button type="submit" class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-primary text-primary-foreground shadow hover:bg-primary/90 h-9 px-4 py-2 w-full">Sign In</button>
+          </form>
+          <div class="mt-4 text-center">
+            <a href="/register" class="text-xs text-muted-foreground hover:text-foreground">Don't have an account? Register</a>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script>
+      injectIntoGlobalHook(window);
+      window.$RefreshReg$ = () => {};
+      window.$RefreshSig$ = () => (type) => type;;;import("/@id/virtual:tanstack-start-client-entry")
+    </script>
+  </body>
+</html>
