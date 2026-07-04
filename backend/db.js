@@ -507,6 +507,39 @@ await run(
     }
   }
 
+  const existingSubjects = await all(db, "SELECT * FROM subjects LIMIT 1");
+  if (existingSubjects.length === 0) {
+    const curriculumRows = await all(
+      db,
+      `SELECT c.yearLevel, c.semester, c.subjectCode, c.subjectTitle, c.units, p.name AS programName
+       FROM curriculum c
+       JOIN programs p ON p.id = c.programId`,
+    );
+
+    for (const row of curriculumRows) {
+      await run(
+        db,
+        `INSERT INTO subjects (id, code, title, units, schedule, room, instructor, program, yearLevel, semester, facultyId, academicYear, addedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          crypto.randomUUID(),
+          row.subjectCode,
+          row.subjectTitle,
+          row.units,
+          "TBA",
+          "TBA",
+          "Unassigned",
+          row.programName,
+          row.yearLevel,
+          row.semester,
+          null,
+          null,
+          Date.now(),
+        ],
+      );
+    }
+  }
+
   // Seed default admin user
   const existingAdmins = await all(db, "SELECT * FROM users WHERE role = 'admin' LIMIT 1");
   if (existingAdmins.length === 0) {

@@ -13,7 +13,25 @@ const db = await openDb();
 await initDb(db);
 
 app.get("/api/subjects", async (req, res) => {
-  const rows = await all(db, "SELECT * FROM subjects ORDER BY addedAt DESC");
+  const rows = await all(
+    db,
+    `SELECT * FROM subjects
+     ORDER BY program,
+       CASE yearLevel
+         WHEN '1st Year' THEN 1
+         WHEN '2nd Year' THEN 2
+         WHEN '3rd Year' THEN 3
+         WHEN '4th Year' THEN 4
+         ELSE 5
+       END,
+       CASE semester
+         WHEN '1st Semester' THEN 1
+         WHEN '2nd Semester' THEN 2
+         WHEN 'Summer' THEN 3
+         ELSE 4
+       END,
+       code`,
+  );
   res.json(rows);
 });
 
@@ -804,6 +822,47 @@ app.get("/api/programs", async (_req, res) => {
 app.get("/api/programs/detailed", async (_req, res) => {
   const rows = await all(db, "SELECT id, name, description, status, createdAt FROM programs ORDER BY name");
   res.json(rows);
+});
+
+app.get("/api/dashboard/registrar", async (_req, res) => {
+  const pendingApplications = await get(db, "SELECT COUNT(*) AS count FROM students WHERE status = 'pending'");
+  const approvedStudents = await get(db, "SELECT COUNT(*) AS count FROM students WHERE status = 'approved'");
+  const pendingEnrollments = await get(db, "SELECT COUNT(*) AS count FROM enrollments WHERE status = 'enrolled'");
+  const totalSubjects = await get(db, "SELECT COUNT(*) AS count FROM subjects");
+  const assignedFaculty = await get(
+    db,
+    "SELECT COUNT(DISTINCT facultyId) AS count FROM subjects WHERE facultyId IS NOT NULL AND facultyId != ''",
+  );
+  const programsOffered = await get(db, "SELECT COUNT(*) AS count FROM programs WHERE status = 'active'");
+  const eligibleStudents = await all(
+    db,
+    `SELECT 1
+     FROM students s
+     WHERE s.status = 'approved'
+       AND EXISTS (SELECT 1 FROM enrollments e WHERE e.studentId = s.studentId AND e.status = 'enrolled')
+       AND EXISTS (SELECT 1 FROM grades g WHERE g.studentId = s.studentId)
+       AND NOT EXISTS (SELECT 1 FROM grades g WHERE g.studentId = s.studentId AND g.status = 'draft')`,
+  );
+  const recentActivities = await all(
+    db,
+    `SELECT 'enrollment' AS type, 'New enrollment recorded' AS message, enrolledAt AS date
+     FROM enrollments
+     WHERE status = 'enrolled'
+     ORDER BY enrolledAt DESC
+     LIMIT 5`,
+  );
+
+  res.json({
+    pendingApplications: pendingApplications?.count ?? 0,
+    approvedStudents: approvedStudents?.count ?? 0,
+    pendingEnrollments: pendingEnrollments?.count ?? 0,
+    activeStudents: approvedStudents?.count ?? 0,
+    totalSubjects: totalSubjects?.count ?? 0,
+    assignedFaculty: assignedFaculty?.count ?? 0,
+    programsOffered: programsOffered?.count ?? 0,
+    eligibleReenrollment: eligibleStudents.length,
+    recentActivities,
+  });
 });
 
 app.post("/api/programs", async (req, res) => {

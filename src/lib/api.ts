@@ -403,6 +403,22 @@ export async function fetchProgramsDetailed() {
   return request<Program[]>("/api/programs/detailed");
 }
 
+export interface RegistrarDashboardStats {
+  pendingApplications: number;
+  approvedStudents: number;
+  pendingEnrollments: number;
+  activeStudents: number;
+  totalSubjects: number;
+  assignedFaculty: number;
+  programsOffered: number;
+  eligibleReenrollment: number;
+  recentActivities: { type: string; message: string; date: string }[];
+}
+
+export async function fetchRegistrarDashboardStats() {
+  return request<RegistrarDashboardStats>("/api/dashboard/registrar");
+}
+
 export async function createProgram(program: { name: string; description?: string }) {
   return request<Program>("/api/programs", {
     method: "POST",
