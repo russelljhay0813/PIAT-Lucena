@@ -11,7 +11,7 @@ import {
   type StudentRegistrationPayload,
 } from "./api";
 
-export type RegistrationStatus = "pending" | "approved" | "rejected";
+export type RegistrationStatus = "not_started" | "in_progress" | "submitted" | "under_review" | "approved" | "rejected";
 
 export interface StudentRegistration extends ApiStudentRegistration {}
 
@@ -50,9 +50,11 @@ export async function emailExists(email: string): Promise<boolean> {
 }
 
 export async function submitRegistration(
-  data: StudentRegistrationPayload,
+  data: StudentRegistrationPayload & { studentId?: string },
 ): Promise<StudentRegistration> {
-  const created = await createStudent(data);
+  const created = data.studentId
+    ? await updateStudent(data.studentId, { ...data, status: data.status ?? "submitted" })
+    : await createStudent(data);
   broadcastUpdate();
   return created;
 }

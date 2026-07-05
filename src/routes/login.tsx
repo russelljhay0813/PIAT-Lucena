@@ -36,9 +36,17 @@ function LoginPage() {
   }, []);
 
   useEffect(() => {
-    if (isAuthenticated && user) {
-      navigate({ to: roleDashboardPaths[user.role] });
+    if (!isAuthenticated || !user) return;
+
+    if (user.role === "student") {
+      const registrationStatus = user.registrationStatus?.toLowerCase();
+      if (!registrationStatus || registrationStatus !== "approved") {
+        navigate({ to: "/register" });
+        return;
+      }
     }
+
+    navigate({ to: roleDashboardPaths[user.role] });
   }, [isAuthenticated, user, navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -48,34 +56,25 @@ function LoginPage() {
 
     try {
       let userAccount: UserAccount | null = await loginUser(email, password);
+      let studentRecord = null;
 
       if (!userAccount) {
-        const student = await loginStudent(email, password);
-        if (student) {
-          if (student.status === "pending") {
-            setError("Your registration is still pending registrar approval.");
-            setIsLoading(false);
-            return;
-          }
-          if (student.status === "rejected") {
-            setError("Your registration was rejected. Please contact the registrar.");
-            setIsLoading(false);
-            return;
-          }
+        studentRecord = await loginStudent(email, password);
+        if (studentRecord) {
           userAccount = {
-            id: student.id,
-            userId: student.studentId,
-            username: student.email,
-            email: student.email,
-            firstName: student.firstName,
-            lastName: student.lastName,
+            id: studentRecord.id,
+            userId: studentRecord.studentId,
+            username: studentRecord.email,
+            email: studentRecord.email,
+            firstName: studentRecord.firstName,
+            lastName: studentRecord.lastName,
             role: "student",
             status: "active",
-            program: student.program,
-            yearLevel: student.yearLevel,
-            semester: student.semester,
-            academicYear: student.academicYear,
-            createdAt: student.submittedAt,
+            program: studentRecord.program,
+            yearLevel: studentRecord.yearLevel,
+            semester: studentRecord.semester,
+            academicYear: studentRecord.academicYear,
+            createdAt: studentRecord.submittedAt,
           };
         } else {
           setError("Invalid email or password.");
@@ -84,20 +83,39 @@ function LoginPage() {
         }
       }
 
-      loginAs({
+      if (userAccount.role === "student") {
+        try {
+          studentRecord = await loginStudent(email, password);
+        } catch {
+          studentRecord = null;
+        }
+      }
+
+      const sessionUser = {
         id: userAccount.id,
         name: `${userAccount.firstName} ${userAccount.lastName}`,
         email: userAccount.email,
         role: userAccount.role,
-        studentId: userAccount.userId,
-        program: userAccount.program,
-        yearLevel: userAccount.yearLevel,
-        semester: userAccount.semester,
-        academicYear: userAccount.academicYear,
+        studentId: studentRecord?.studentId || userAccount.userId || userAccount.studentId,
+        program: studentRecord?.program || userAccount.program,
+        yearLevel: studentRecord?.yearLevel || userAccount.yearLevel,
+        semester: studentRecord?.semester || userAccount.semester,
+        academicYear: studentRecord?.academicYear || userAccount.academicYear,
         firstName: userAccount.firstName,
         lastName: userAccount.lastName,
         middleName: userAccount.middleName || undefined,
-      });
+        registrationStatus: userAccount.role === "student" ? studentRecord?.status : undefined,
+      };
+
+      loginAs(sessionUser);
+
+      if (userAccount.role === "student") {
+        const nextStatus = studentRecord?.status?.toLowerCase();
+        if (!nextStatus || nextStatus !== "approved") {
+          navigate({ to: "/register" });
+          return;
+        }
+      }
     } catch {
       setError("Invalid email or password.");
     } finally {

@@ -41,6 +41,8 @@ function RegistrarRegistrations() {
     };
   }, []);
 
+  const isPendingStatus = (status: string) => ["pending", "submitted", "under_review", "in_progress"].includes(status);
+
   const filtered = list.filter((r) => {
     const q = search.toLowerCase();
     const matchSearch =
@@ -48,12 +50,12 @@ function RegistrarRegistrations() {
       r.email.toLowerCase().includes(q) ||
       r.program.toLowerCase().includes(q) ||
       r.studentId.toLowerCase().includes(q);
-    const matchStatus = filter === "All" || r.status === filter;
+    const matchStatus = filter === "All" || (filter === "pending" ? isPendingStatus(r.status) : r.status === filter);
     return matchSearch && matchStatus;
   });
 
   const counts = {
-    pending: list.filter((r) => r.status === "pending").length,
+    pending: list.filter((r) => isPendingStatus(r.status)).length,
     approved: list.filter((r) => r.status === "approved").length,
     rejected: list.filter((r) => r.status === "rejected").length,
   };
@@ -149,7 +151,7 @@ function RegistrarRegistrations() {
                     >
                       <Eye className="h-3.5 w-3.5" /> View
                     </button>
-                    {r.status === "pending" && (
+                    {isPendingStatus(r.status) && (
                       <>
                         <button
                           onClick={async () => {

@@ -15,6 +15,7 @@ export interface User {
   firstName?: string;
   lastName?: string;
   middleName?: string;
+  registrationStatus?: string;
 }
 
 interface AuthContextType {

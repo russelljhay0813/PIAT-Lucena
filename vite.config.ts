@@ -3,6 +3,7 @@ import { fileURLToPath } from "url";
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const backendTarget = process.env.VITE_API_PROXY_TARGET || "http://localhost:4000";
 
 export default defineConfig({
   vite: {
@@ -11,7 +12,7 @@ export default defineConfig({
       port: 8080,
       proxy: {
         "/api": {
-          target: "http://localhost:4000",
+          target: backendTarget,
           changeOrigin: true,
           secure: false,
         },

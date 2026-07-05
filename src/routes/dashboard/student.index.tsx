@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { StatCard } from "@/components/StatCard";
 import { BookOpen, Calendar, Clock, TrendingUp, User, MapPin, ClipboardList, BellRing, Megaphone, RefreshCw, ArrowRight } from "lucide-react";
 import { motion } from "framer-motion";
@@ -28,6 +28,7 @@ export const Route = createFileRoute("/dashboard/student/")({
 
 function StudentDashboard() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [studentProfile, setStudentProfile] = useState<StudentRegistration | null>(null);
   const [enrollments, setEnrollments] = useState<StudentEnrollment[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
@@ -158,7 +159,7 @@ function StudentDashboard() {
   const displayName = studentProfile ? `${studentProfile.firstName} ${studentProfile.lastName}`.trim() : user?.name ?? "Student";
   const displayAcademicYear = studentProfile?.academicYear || user?.academicYear || `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`;
   const displaySemester = studentProfile?.semester || user?.semester || "1st Semester";
-  const registrationStatus = studentProfile?.status === "approved" ? "Approved" : studentProfile?.status === "rejected" ? "Rejected" : studentProfile?.status === "pending" ? "Under Review" : "Registration Not Started";
+  const registrationStatus = studentProfile?.status === "approved" ? "Approved" : studentProfile?.status === "rejected" ? "Rejected" : studentProfile?.status === "submitted" || studentProfile?.status === "under_review" ? "Under Review" : "Registration Not Started";
   const enrollmentStatus = enrollments.length > 0 ? "Enrolled" : studentProfile?.status === "approved" ? "Pending Enrollment" : "Not Enrolled";
 
   const handleReenrollment = async () => {
@@ -180,6 +181,52 @@ function StudentDashboard() {
       setIsReenrolling(false);
     }
   };
+
+  if (user?.role === "student") {
+    if (loading) {
+      return (
+        <div className="flex min-h-screen items-center justify-center">
+          <div className="max-w-md rounded-xl border bg-card p-8 text-center shadow-sm">
+            <h1 className="font-heading text-xl font-bold text-foreground">Loading your student portal</h1>
+            <p className="mt-2 text-sm text-muted-foreground">Preparing your dashboard and registration status.</p>
+          </div>
+        </div>
+      );
+    }
+
+    if (!studentProfile) {
+      navigate({ to: "/register" });
+      return null;
+    }
+
+    if (studentProfile.status !== "approved") {
+      if (studentProfile.status === "submitted" || studentProfile.status === "under_review") {
+        return (
+          <div className="flex min-h-screen items-center justify-center">
+            <div className="max-w-md rounded-xl border bg-card p-8 text-center shadow-sm">
+              <h1 className="font-heading text-xl font-bold text-foreground">Registration Under Review</h1>
+              <p className="mt-2 text-sm text-muted-foreground">Your registration is under review by the Registrar. Please wait for approval.</p>
+            </div>
+          </div>
+        );
+      }
+
+      if (studentProfile.status === "rejected") {
+        return (
+          <div className="flex min-h-screen items-center justify-center">
+            <div className="max-w-md rounded-xl border bg-card p-8 text-center shadow-sm">
+              <h1 className="font-heading text-xl font-bold text-foreground">Registration Needs Revision</h1>
+              <p className="mt-2 text-sm text-muted-foreground">{studentProfile.reviewNote || "Your registration was returned for revision. Please update the form and resubmit it."}</p>
+              <button onClick={() => navigate({ to: "/register" })} className="mt-4 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Edit Registration</button>
+            </div>
+          </div>
+        );
+      }
+
+      navigate({ to: "/register" });
+      return null;
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -276,7 +323,7 @@ function StudentDashboard() {
           {loading ? (
             <p className="text-sm text-muted-foreground">Loading your enrolled subjects...</p>
           ) : subjects.length === 0 ? (
-            <p className="rounded-lg border border-dashed bg-muted/40 p-4 text-sm text-muted-foreground">No subjects are currently assigned to you.</p>
+            <p className="rounded-lg border border-dashed bg-muted/40 p-4 text-sm text-muted-foreground">No subjects have been assigned to your enrollment yet.</p>
           ) : (
             <div className="space-y-3">
               {subjects.map((subject) => (

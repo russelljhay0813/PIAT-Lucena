@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { emailExists, submitRegistration } from "@/lib/registrations-store";
-import { fetchPrograms } from "@/lib/api";
+import { fetchPrograms, type StudentRegistration } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 
 export const Route = createFileRoute("/register")({
@@ -21,7 +21,7 @@ export const Route = createFileRoute("/register")({
 
 const YEAR_LEVELS = ["1st Year", "2nd Year", "3rd Year", "4th Year"];
 const SEMESTERS = ["1st Semester", "2nd Semester", "Summer"];
-const GENDERS = ["Male", "Female"];
+const GENDERS = ["Male", "Female", "Prefer not to say"];
 const CIVIL_STATUS = ["Single", "Married", "Widowed", "Separated"];
 
 const step1Schema = z.object({
@@ -29,24 +29,24 @@ const step1Schema = z.object({
   middleName: z.string().optional(),
   lastName: z.string().trim().min(1, "Last name is required").max(60),
   suffix: z.string().optional(),
-  gender: z.string().optional(),
-  dob: z.string().optional(),
-  civilStatus: z.string().optional(),
+  gender: z.string().min(1, "Gender is required"),
+  dob: z.string().min(1, "Date of birth is required"),
+  civilStatus: z.string().min(1, "Civil status is required"),
   nationality: z.string().trim().min(1, "Nationality is required"),
   placeOfBirth: z.string().optional(),
 });
 
 const step2Schema = z.object({
   email: z.string().trim().email("Invalid email"),
-  mobileNumber: z.string().trim().min(10, "Mobile number must be at least 10 digits"),
+  mobileNumber: z.string().trim().regex(/^\+?[0-9\s-]{10,15}$/, "Valid mobile number is required"),
   homeAddress: z.string().trim().min(1, "Home address is required"),
-  province: z.string().trim().optional(),
-  city: z.string().trim().optional(),
-  barangay: z.string().trim().optional(),
-  zipCode: z.string().trim().optional(),
+  province: z.string().trim().min(1, "Province is required"),
+  city: z.string().trim().min(1, "Municipality/City is required"),
+  barangay: z.string().trim().min(1, "Barangay is required"),
+  zipCode: z.string().trim().min(1, "ZIP code is required"),
   parentGuardianName: z.string().trim().min(1, "Parent/Guardian name is required"),
   relationship: z.string().trim().min(1, "Relationship is required"),
-  parentGuardianContact: z.string().trim().optional(),
+  parentGuardianContact: z.string().trim().regex(/^\+?[0-9\s-]{10,15}$/, "Valid contact number is required"),
 });
 
 const step3Schema = z.object({
@@ -64,10 +64,12 @@ type FormState = Step1Data & Step2Data & Step3Data;
 
 function RegisterPage() {
   const navigate = useNavigate();
-  const { loginAs } = useAuth();
+  const { user } = useAuth();
   const [step, setStep] = useState(1);
   const [submitted, setSubmitted] = useState(false);
   const [programs, setPrograms] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [studentRecord, setStudentRecord] = useState<StudentRegistration | null>(null);
   const currentYear = new Date().getFullYear();
   const [previewData, setPreviewData] = useState<FormState | null>(null);
 
@@ -78,9 +80,9 @@ function RegisterPage() {
       middleName: "",
       lastName: "",
       suffix: "",
-      gender: "Male",
+      gender: "",
       dob: "",
-      civilStatus: "Single",
+      civilStatus: "",
       nationality: "Filipino",
       placeOfBirth: "",
       email: "",
@@ -93,12 +95,56 @@ function RegisterPage() {
       parentGuardianName: "",
       relationship: "Father",
       parentGuardianContact: "",
-      program: "",
-      yearLevel: "1st Year",
-      semester: "1st Semester",
-      academicYear: `${currentYear}-${currentYear + 1}`,
+      program: user?.program || "",
+      yearLevel: user?.yearLevel || "1st Year",
+      semester: user?.semester || "1st Semester",
+      academicYear: user?.academicYear || `${currentYear}-${currentYear + 1}`,
     },
   });
+
+  useEffect(() => {
+    if (user?.studentId) {
+      fetch(`/api/students/${encodeURIComponent(user.studentId)}`)
+        .then((response) => response.ok ? response.json() : null)
+        .then((record) => {
+          if (record) {
+            setStudentRecord(record);
+            const normalizedStatus = String(record.status || "").toLowerCase();
+            setSubmitted(normalizedStatus === "submitted" || normalizedStatus === "under_review");
+            if (normalizedStatus === "approved") {
+              navigate({ to: "/dashboard/student" });
+              return;
+            }
+            form.reset({
+              firstName: record.firstName || "",
+              middleName: record.middleName || "",
+              lastName: record.lastName || "",
+              suffix: record.suffix || "",
+              gender: record.gender || "",
+              dob: record.dob || "",
+              civilStatus: record.civilStatus || "",
+              nationality: record.nationality || "Filipino",
+              placeOfBirth: record.placeOfBirth || "",
+              email: record.email || "",
+              mobileNumber: record.contactNumber || "",
+              homeAddress: record.address || "",
+              province: record.province || "",
+              city: record.city || "",
+              barangay: record.barangay || "",
+              zipCode: record.zip || "",
+              parentGuardianName: record.parentName || "",
+              relationship: record.parentRelationship || "Father",
+              parentGuardianContact: record.parentContact || "",
+              program: record.program || user?.program || "",
+              yearLevel: record.yearLevel || user?.yearLevel || "1st Year",
+              semester: record.semester || user?.semester || "1st Semester",
+              academicYear: record.academicYear || user?.academicYear || `${currentYear}-${currentYear + 1}`,
+            });
+          }
+        })
+        .catch(() => undefined);
+    }
+  }, [user?.studentId]);
 
   useEffect(() => {
     fetchPrograms()
@@ -118,7 +164,7 @@ function RegisterPage() {
     let isValid = false;
     switch (currentStep) {
       case 1:
-        isValid = await form.trigger(["firstName", "middleName", "lastName", "suffix", "gender", "dob", "civilStatus", "nationality", "placeOfBirth"]);
+        isValid = await form.trigger(["firstName", "lastName", "gender", "dob", "civilStatus", "nationality"]);
         break;
       case 2:
         isValid = await form.trigger(["email", "mobileNumber", "homeAddress", "province", "city", "barangay", "zipCode", "parentGuardianName", "relationship", "parentGuardianContact"]);
@@ -146,38 +192,56 @@ function RegisterPage() {
 
   const handleSubmit = async () => {
     const data = form.getValues();
-    if (await emailExists(data.email || "")) {
+    if (!user?.studentId) {
+      form.setError("email", { message: "Your student account could not be identified. Please sign in again." });
+      return;
+    }
+
+    if (studentRecord?.email && studentRecord.email !== data.email && (await emailExists(data.email || ""))) {
       form.setError("email", { message: "This email is already registered" });
       return;
     }
 
-    await submitRegistration({
-      firstName: data.firstName,
-      middleName: data.middleName || undefined,
-      lastName: data.lastName,
-      email: data.email,
-      password: Math.random().toString(36).slice(2, 8),
-      educationLevel: "College",
-      program: data.program,
-      yearLevel: data.yearLevel,
-      gradeLevel: "",
-      strand: "",
-      academicYear: data.academicYear,
-      semester: data.semester,
-      gender: data.gender || undefined,
-      dob: data.dob || undefined,
-      civilStatus: data.civilStatus || undefined,
-      nationality: data.nationality,
-      contactNumber: data.mobileNumber || "",
-      address: data.homeAddress,
-      parentName: data.parentGuardianName || undefined,
-      parentContact: data.parentGuardianContact || undefined,
-      studentType: "new",
-    });
-    setSubmitted(true);
+    setIsLoading(true);
+    try {
+      await submitRegistration({
+        studentId: user.studentId,
+        firstName: data.firstName,
+        middleName: data.middleName || undefined,
+        lastName: data.lastName,
+        suffix: data.suffix || undefined,
+        email: data.email,
+        password: studentRecord?.password || "",
+        educationLevel: "College",
+        program: data.program,
+        yearLevel: data.yearLevel,
+        gradeLevel: "",
+        strand: "",
+        academicYear: data.academicYear,
+        semester: data.semester,
+        gender: data.gender || undefined,
+        dob: data.dob || undefined,
+        civilStatus: data.civilStatus || undefined,
+        nationality: data.nationality,
+        contactNumber: data.mobileNumber || undefined,
+        address: data.homeAddress,
+        province: data.province || undefined,
+        city: data.city || undefined,
+        barangay: data.barangay || undefined,
+        zip: data.zipCode || undefined,
+        parentName: data.parentGuardianName || undefined,
+        parentContact: data.parentGuardianContact || undefined,
+        parentRelationship: data.relationship || undefined,
+        placeOfBirth: data.placeOfBirth || undefined,
+        status: "submitted",
+      });
+      setSubmitted(true);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  if (submitted) {
+  if (submitted || ["submitted", "under_review"].includes(String(studentRecord?.status || ""))) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background px-4">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
@@ -187,8 +251,7 @@ function RegisterPage() {
           </div>
           <h1 className="font-heading text-xl font-bold text-foreground">Registration Submitted Successfully</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Your application has been submitted and is awaiting review by the Registrar.
-            You will be able to access your Student Dashboard once your registration has been approved.
+            Your registration has been submitted successfully. Please wait for the Registrar to review and approve your application.
           </p>
           <Link to="/" className="mt-6 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90">
             <ArrowLeft className="h-4 w-4" /> Back to Login
@@ -332,18 +395,18 @@ function RegisterPage() {
               {step === 3 && (
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   <Field label="Program *" error={form.formState.errors.program?.message}>
-                    <select {...form.register("program")} className="input">
+                    <select {...form.register("program")} className="input" disabled>
                       <option value="">Select program...</option>
                       {programs.map((p) => <option key={p} value={p}>{p}</option>)}
                     </select>
                   </Field>
                   <Field label="Year Level *">
-                    <select {...form.register("yearLevel")} className="input">
+                    <select {...form.register("yearLevel")} className="input" disabled>
                       {YEAR_LEVELS.map((y) => <option key={y} value={y}>{y}</option>)}
                     </select>
                   </Field>
                   <Field label="Semester *">
-                    <select {...form.register("semester")} className="input">
+                    <select {...form.register("semester")} className="input" disabled>
                       {SEMESTERS.map((s) => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </Field>

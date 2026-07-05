@@ -97,9 +97,13 @@ export async function initDb(db) {
       program TEXT,
       yearLevel TEXT,
       createdAt TEXT NOT NULL,
-      temporaryPassword TEXT
+      temporaryPassword TEXT,
+      firstLoginAt TEXT,
+      lastLoginAt TEXT
     )`,
   );
+  await addColumnIfMissing(db, "users", "firstLoginAt", "TEXT");
+  await addColumnIfMissing(db, "users", "lastLoginAt", "TEXT");
 
   await run(
     db,
@@ -185,12 +189,19 @@ contactNumber TEXT,
       emergencyContact TEXT,
       emergencyAddress TEXT,
       emergencyRelation TEXT,
+      placeOfBirth TEXT,
+      barangay TEXT,
+      parentRelationship TEXT,
       status TEXT NOT NULL,
       submittedAt TEXT NOT NULL,
       reviewedAt TEXT,
-      reviewNote TEXT
+      reviewNote TEXT,
+      firstLoginAt TEXT,
+      lastLoginAt TEXT
     )`,
   );
+  await addColumnIfMissing(db, "students", "firstLoginAt", "TEXT");
+  await addColumnIfMissing(db, "students", "lastLoginAt", "TEXT");
 
   await run(
     db,
@@ -255,6 +266,19 @@ await run(
       authorRole TEXT,
       createdAt INTEGER NOT NULL,
       datePosted TEXT
+    )`,
+  );
+
+  await run(
+    db,
+    `CREATE TABLE IF NOT EXISTS activity_logs (
+      id TEXT PRIMARY KEY,
+      actorId TEXT NOT NULL,
+      actorName TEXT NOT NULL,
+      action TEXT NOT NULL,
+      details TEXT NOT NULL,
+      role TEXT NOT NULL,
+      createdAt TEXT NOT NULL
     )`,
   );
 

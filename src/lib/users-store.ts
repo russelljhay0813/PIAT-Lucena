@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { fetchUsers, createUser as apiCreateUser } from "./api";
+import { fetchUsers, fetchActivityLogs, createUser as apiCreateUser, type ActivityLogEntry } from "./api";
 
 export type UserRole = "admin" | "faculty" | "registrar" | "student";
 
@@ -23,9 +23,12 @@ export interface UserAccount {
 
 export interface CreateUserPayload {
   role: UserRole;
+  studentId?: string;
   firstName: string;
   middleName?: string | null;
   lastName: string;
+  suffix?: string | null;
+  gender?: string | null;
   email?: string;
   password?: string;
   program?: string;
@@ -67,6 +70,27 @@ export async function createUser(payload: CreateUserPayload): Promise<UserAccoun
   });
   broadcastUpdate();
   return user;
+}
+
+export function useActivityLogs() {
+  const [logs, setLogs] = useState<ActivityLogEntry[]>([]);
+
+  const refresh = useCallback(async () => {
+    try {
+      setLogs(await fetchActivityLogs());
+    } catch {
+      setLogs([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    const onChange = () => refresh();
+    window.addEventListener(EVENT, onChange);
+    return () => window.removeEventListener(EVENT, onChange);
+  }, [refresh]);
+
+  return logs;
 }
 
 export async function updateUser(id: string, patch: Partial<UserAccount>) {

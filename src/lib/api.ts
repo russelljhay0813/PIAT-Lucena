@@ -72,8 +72,8 @@ export interface StudentRegistrationPayload {
   section?: string | null;
   previousSchool?: string | null;
   lastGrade?: string | null;
-  contactNumber: string;
-  address: string;
+  contactNumber?: string | null;
+  address?: string | null;
   city?: string | null;
   province?: string | null;
   zip?: string | null;
@@ -90,10 +90,14 @@ export interface StudentRegistrationPayload {
   parentName?: string | null;
   parentContact?: string | null;
   parentAddress?: string | null;
+  parentRelationship?: string | null;
+  placeOfBirth?: string | null;
+  barangay?: string | null;
   emergencyName?: string | null;
   emergencyContact?: string | null;
   emergencyAddress?: string | null;
   emergencyRelation?: string | null;
+  status?: string;
 }
 
 export interface LoginPayload {
@@ -301,6 +305,9 @@ export interface StudentRegistration {
   emergencyContact?: string | null;
   emergencyAddress?: string | null;
   emergencyRelation?: string | null;
+  parentRelationship?: string | null;
+  placeOfBirth?: string | null;
+  barangay?: string | null;
   status: string;
   submittedAt: string;
   reviewedAt?: string;
@@ -365,6 +372,17 @@ export interface UserAccount {
   academicYear?: string;
   createdAt: string;
   temporaryPassword?: string;
+  studentId?: string;
+}
+
+export interface ActivityLogEntry {
+  id: string;
+  actorId: string;
+  actorName: string;
+  action: string;
+  details: string;
+  role: string;
+  createdAt: string;
 }
 
 export interface StudentEnrollment {
@@ -382,10 +400,18 @@ export async function fetchUsers(role?: string) {
   return request<UserAccount[]>(`/api/users${query}`);
 }
 
+export async function fetchActivityLogs() {
+  return request<ActivityLogEntry[]>("/api/activity-logs");
+}
+
 export async function createUser(user: {
   role: string;
+  studentId?: string;
   firstName: string;
+  middleName?: string | null;
   lastName: string;
+  suffix?: string | null;
+  gender?: string | null;
   email?: string;
   password?: string;
   program?: string;

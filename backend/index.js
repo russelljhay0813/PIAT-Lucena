@@ -47,6 +47,110 @@ async function notifyRegistrarUsers(type, title, message, relatedId = null) {
   return notifyUsers(users.map((user) => user.id), type, title, message, relatedId);
 }
 
+async function createActivityLog(actorId, actorName, action, details, role) {
+  const entry = {
+    id: crypto.randomUUID(),
+    actorId: String(actorId || "system"),
+    actorName: String(actorName || "System").trim() || "System",
+    action: String(action).trim(),
+    details: String(details).trim(),
+    role: String(role || "system"),
+    createdAt: new Date().toISOString(),
+  };
+
+  await run(
+    db,
+    `INSERT INTO activity_logs (id, actorId, actorName, action, details, role, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [entry.id, entry.actorId, entry.actorName, entry.action, entry.details, entry.role, entry.createdAt],
+  );
+
+  return entry;
+}
+
+async function syncStudentEnrollment(student) {
+  if (!student?.studentId || !student.program || !student.yearLevel || !student.semester) {
+    return [];
+  }
+
+  let program = await get(db, "SELECT id FROM programs WHERE name = ?", [student.program]);
+  if (!program) {
+    const programId = crypto.randomUUID();
+    await run(db, "INSERT INTO programs (id, name, description, status, createdAt) VALUES (?, ?, ?, ?, ?)", [programId, student.program, `Auto-created for ${student.program}`, "active", new Date().toISOString()]);
+    program = { id: programId };
+  }
+
+  const curriculumItems = await all(
+    db,
+    "SELECT * FROM curriculum WHERE programId = ? AND yearLevel = ? AND semester = ?",
+    [program.id, student.yearLevel, student.semester],
+  );
+
+  const createdEnrollments = [];
+  for (const item of curriculumItems) {
+    let subject = await get(
+      db,
+      "SELECT * FROM subjects WHERE program = ? AND yearLevel = ? AND semester = ? AND code = ?",
+      [student.program, student.yearLevel, student.semester, item.subjectCode],
+    );
+
+    if (!subject) {
+      subject = {
+        id: crypto.randomUUID(),
+        code: item.subjectCode,
+        title: item.subjectTitle,
+        units: Number(item.units) || 3,
+        schedule: "TBA",
+        room: "TBA",
+        instructor: "Unassigned",
+        program: student.program,
+        yearLevel: student.yearLevel,
+        semester: student.semester,
+        facultyId: null,
+        academicYear: student.academicYear || null,
+        addedAt: Date.now(),
+      };
+      await run(
+        db,
+        `INSERT INTO subjects (id, code, title, units, schedule, room, instructor, program, yearLevel, semester, facultyId, academicYear, addedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [subject.id, subject.code, subject.title, subject.units, subject.schedule, subject.room, subject.instructor, subject.program, subject.yearLevel, subject.semester, subject.facultyId, subject.academicYear, subject.addedAt],
+      );
+    }
+
+    const existing = await get(
+      db,
+      "SELECT id FROM enrollments WHERE studentId = ? AND subjectId = ? AND status = 'enrolled'",
+      [student.studentId, subject.id],
+    );
+
+    if (!existing) {
+      const enrollment = {
+        id: crypto.randomUUID(),
+        studentId: student.studentId,
+        subjectId: subject.id,
+        academicYear: student.academicYear || `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`,
+        semester: student.semester,
+        enrolledAt: new Date().toISOString(),
+        status: "enrolled",
+      };
+      await run(
+        db,
+        `INSERT INTO enrollments (id, studentId, subjectId, academicYear, semester, enrolledAt, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [enrollment.id, enrollment.studentId, enrollment.subjectId, enrollment.academicYear, enrollment.semester, enrollment.enrolledAt, enrollment.status],
+      );
+      createdEnrollments.push(enrollment);
+    }
+  }
+
+  if (createdEnrollments.length > 0) {
+    await createNotificationRecord(student.studentId, "schedule", "Subjects Assigned", `Your enrollment has been created with ${createdEnrollments.length} subject(s).`, student.studentId);
+  }
+
+  return createdEnrollments;
+}
+
 app.get("/api/subjects", async (req, res) => {
   const rows = await all(
     db,
@@ -207,6 +311,9 @@ app.post("/api/students", async (req, res) => {
     emergencyAddress,
     emergencyRelation,
     address,
+    placeOfBirth,
+    barangay,
+    parentRelationship,
   } = req.body;
   if (!firstName || !lastName || !email || !password || !educationLevel) {
     return res.status(400).json({ error: "Missing required student registration fields" });
@@ -261,15 +368,18 @@ contactNumber: contactNumber ? String(contactNumber).trim() : null,
     emergencyContact: emergencyContact ? String(emergencyContact).trim() : null,
     emergencyAddress: emergencyAddress ? String(emergencyAddress).trim() : null,
     emergencyRelation: emergencyRelation ? String(emergencyRelation).trim() : null,
-    status: "pending",
+    placeOfBirth: placeOfBirth ? String(placeOfBirth).trim() : null,
+    barangay: barangay ? String(barangay).trim() : null,
+    parentRelationship: parentRelationship ? String(parentRelationship).trim() : null,
+    status: "submitted",
     submittedAt: new Date().toISOString(),
     reviewedAt: null,
     reviewNote: null,
   };
   await run(
     db,
-    `INSERT INTO students (id, studentId, firstName, lastName, middleName, suffix, email, password, gender, dob, age, civilStatus, nationality, religion, educationLevel, program, yearLevel, gradeLevel, strand, studentType, academicYear, semester, section, previousSchool, lastGrade, contactNumber, address, city, province, zip, fatherName, fatherOccupation, fatherContact, motherName, motherOccupation, motherContact, guardianName, guardianOccupation, guardianContact, guardianRelation, parentName, parentContact, parentAddress, emergencyName, emergencyContact, emergencyAddress, emergencyRelation, status, submittedAt, reviewedAt, reviewNote)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO students (id, studentId, firstName, lastName, middleName, suffix, email, password, gender, educationLevel, program, yearLevel, studentType, academicYear, semester, status, submittedAt, reviewedAt, reviewNote, firstLoginAt, lastLoginAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       student.id,
       student.studentId,
@@ -280,48 +390,18 @@ contactNumber: contactNumber ? String(contactNumber).trim() : null,
       student.email,
       student.password,
       student.gender,
-      student.dob,
-      student.age,
-      student.civilStatus,
-      student.nationality,
-      student.religion,
       student.educationLevel,
       student.program,
       student.yearLevel,
-      student.gradeLevel,
-      student.strand,
       student.studentType,
       student.academicYear,
       student.semester,
-      student.section,
-      student.previousSchool,
-      student.lastGrade,
-      student.contactNumber,
-      student.address,
-      student.city,
-      student.province,
-      student.zip,
-      student.fatherName,
-      student.fatherOccupation,
-      student.fatherContact,
-      student.motherName,
-      student.motherOccupation,
-      student.motherContact,
-      student.guardianName,
-      student.guardianOccupation,
-      student.guardianContact,
-      student.guardianRelation,
-      student.parentName,
-      student.parentContact,
-      student.parentAddress,
-      student.emergencyName,
-      student.emergencyContact,
-      student.emergencyAddress,
-      student.emergencyRelation,
       student.status,
       student.submittedAt,
       student.reviewedAt,
       student.reviewNote,
+      null,
+      null,
     ],
   );
   await notifyRegistrarUsers("registration", "New Registration Submitted", `${student.firstName} ${student.lastName} submitted a new application.`, student.studentId);
@@ -331,6 +411,7 @@ contactNumber: contactNumber ? String(contactNumber).trim() : null,
 app.put("/api/students/:studentId", async (req, res) => {
   const existing = await get(db, "SELECT * FROM students WHERE studentId = ?", [req.params.studentId]);
   if (!existing) return res.status(404).json({ error: "Student not found" });
+  const nextStatus = req.body.status ? String(req.body.status) : existing.status;
   const updates = {
     ...existing,
     firstName: req.body.firstName ?? existing.firstName,
@@ -379,13 +460,14 @@ app.put("/api/students/:studentId", async (req, res) => {
     emergencyContact: req.body.emergencyContact ?? existing.emergencyContact,
     emergencyAddress: req.body.emergencyAddress ?? existing.emergencyAddress,
     emergencyRelation: req.body.emergencyRelation ?? existing.emergencyRelation,
-    status: req.body.status ?? existing.status,
+    status: nextStatus,
+    submittedAt: req.body.submittedAt ?? existing.submittedAt ?? new Date().toISOString(),
     reviewedAt: req.body.reviewedAt ?? existing.reviewedAt,
     reviewNote: req.body.reviewNote ?? existing.reviewNote,
   };
   await run(
     db,
-    `UPDATE students SET firstName = ?, lastName = ?, middleName = ?, suffix = ?, email = ?, password = ?, gender = ?, dob = ?, age = ?, civilStatus = ?, nationality = ?, religion = ?, educationLevel = ?, program = ?, yearLevel = ?, gradeLevel = ?, strand = ?, studentType = ?, academicYear = ?, semester = ?, section = ?, previousSchool = ?, lastGrade = ?, contactNumber = ?, address = ?, city = ?, province = ?, zip = ?, fatherName = ?, fatherOccupation = ?, fatherContact = ?, motherName = ?, motherOccupation = ?, motherContact = ?, guardianName = ?, guardianOccupation = ?, guardianContact = ?, guardianRelation = ?, parentName = ?, parentContact = ?, parentAddress = ?, emergencyName = ?, emergencyContact = ?, emergencyAddress = ?, emergencyRelation = ?, status = ?, reviewedAt = ?, reviewNote = ? WHERE studentId = ?`,
+    `UPDATE students SET firstName = ?, lastName = ?, middleName = ?, suffix = ?, email = ?, password = ?, gender = ?, dob = ?, age = ?, civilStatus = ?, nationality = ?, religion = ?, educationLevel = ?, program = ?, yearLevel = ?, gradeLevel = ?, strand = ?, studentType = ?, academicYear = ?, semester = ?, section = ?, previousSchool = ?, lastGrade = ?, contactNumber = ?, address = ?, city = ?, province = ?, zip = ?, fatherName = ?, fatherOccupation = ?, fatherContact = ?, motherName = ?, motherOccupation = ?, motherContact = ?, guardianName = ?, guardianOccupation = ?, guardianContact = ?, guardianRelation = ?, parentName = ?, parentContact = ?, parentAddress = ?, emergencyName = ?, emergencyContact = ?, emergencyAddress = ?, emergencyRelation = ?, placeOfBirth = ?, barangay = ?, parentRelationship = ?, status = ?, submittedAt = ?, reviewedAt = ?, reviewNote = ? WHERE studentId = ?`,
     [
       updates.firstName,
       updates.lastName,
@@ -432,14 +514,19 @@ app.put("/api/students/:studentId", async (req, res) => {
       updates.emergencyContact,
       updates.emergencyAddress,
       updates.emergencyRelation,
+      updates.placeOfBirth,
+      updates.barangay,
+      updates.parentRelationship,
       updates.status,
+      updates.submittedAt,
       updates.reviewedAt,
       updates.reviewNote,
       req.params.studentId,
     ],
   );
   if (updates.status === "approved" && existing.status !== "approved") {
-    await createNotificationRecord(req.params.studentId, "schedule", "Application Approved", "Your registration has been approved. Please complete enrollment.", req.params.studentId);
+    const synced = await syncStudentEnrollment(updates);
+    await createNotificationRecord(req.params.studentId, "schedule", "Application Approved", `Your registration has been approved. ${synced.length > 0 ? "Your enrollment has been created." : "Please complete enrollment."}`, req.params.studentId);
   }
   if (updates.status === "rejected" && existing.status !== "rejected") {
     await createNotificationRecord(req.params.studentId, "schedule", "Application Rejected", "Your registration was not approved. Please contact the registrar for details.", req.params.studentId);
@@ -452,7 +539,14 @@ app.post("/api/students/login", async (req, res) => {
   if (!email || !password) return res.status(400).json({ error: "Email and password are required" });
   const student = await get(db, "SELECT * FROM students WHERE LOWER(email) = LOWER(?) AND password = ?", [email, password]);
   if (!student) return res.status(401).json({ error: "Invalid credentials" });
-  res.json(student);
+  const now = new Date().toISOString();
+  const isFirstLogin = !student.firstLoginAt;
+  await run(db, "UPDATE students SET firstLoginAt = COALESCE(firstLoginAt, ?), lastLoginAt = ? WHERE id = ?", [now, now, student.id]);
+  if (isFirstLogin) {
+    await createNotificationRecord(student.id, "schedule", "Welcome to PIAT", "Welcome! Your student account is ready to use. Please review your profile and registration status.", student.id);
+  }
+  const updatedStudent = await get(db, "SELECT * FROM students WHERE id = ?", [student.id]);
+  res.json(updatedStudent);
 });
 
 app.get("/api/grades", async (req, res) => {
@@ -658,6 +752,11 @@ app.delete("/api/notifications", async (req, res) => {
   res.status(204).end();
 });
 
+app.get("/api/activity-logs", async (_req, res) => {
+  const rows = await all(db, "SELECT * FROM activity_logs ORDER BY createdAt DESC LIMIT 20");
+  res.json(rows);
+});
+
 // Users endpoints
 app.get("/api/users", async (req, res) => {
   const role = req.query.role ? String(req.query.role) : null;
@@ -669,13 +768,21 @@ app.get("/api/users", async (req, res) => {
 });
 
 app.post("/api/users", async (req, res) => {
-  const { role, firstName, lastName, email, password, program, yearLevel } = req.body;
+  const { role, studentId, firstName, middleName, lastName, suffix, gender, email, password, program, yearLevel, semester, academicYear } = req.body;
   if (!role || !firstName || !lastName) {
     return res.status(400).json({ error: "role, firstName, and lastName are required" });
   }
 
-  const users = await all(db, "SELECT userId FROM users WHERE role = ? ORDER BY id DESC LIMIT 1", [role]);
-  const nextId = `${role.toUpperCase().slice(0, 3)}-${String(users.length + 1).padStart(5, "0")}`;
+  const users = await all(db, "SELECT userId FROM users WHERE role = ?", [role]);
+  let maxNum = 0;
+  for (const user of users) {
+    const match = user.userId.match(/-(\d+)$/);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (num > maxNum) maxNum = num;
+    }
+  }
+  const nextId = `${role.toUpperCase().slice(0, 3)}-${String(maxNum + 1).padStart(5, "0")}`;
   const username = `user${firstName.charAt(0).toLowerCase()}${lastName.toLowerCase()}${Math.floor(1000 + Math.random() * 9000)}`;
 
   const user = {
@@ -685,34 +792,39 @@ app.post("/api/users", async (req, res) => {
     email: email ? String(email).trim().toLowerCase() : `${username}@bwest.edu.ph`,
     password: password || Math.random().toString(36).slice(2, 12),
     firstName: String(firstName).trim(),
+    middleName: middleName ? String(middleName).trim() : null,
     lastName: String(lastName).trim(),
     role: String(role),
     status: "active",
     program: program ? String(program) : null,
-    yearLevel: yearLevel ? String(yearLevel) : null,
+    yearLevel: role === "student" ? "1st Year" : yearLevel ? String(yearLevel) : null,
     createdAt: new Date().toISOString(),
     temporaryPassword: password || Math.random().toString(36).slice(2, 12),
   };
 
   await run(
     db,
-    `INSERT INTO users (id, userId, username, email, password, firstName, lastName, role, status, program, yearLevel, createdAt, temporaryPassword)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [user.id, user.userId, user.username, user.email, user.password, user.firstName, user.lastName, user.role, user.status, user.program, user.yearLevel, user.createdAt, user.temporaryPassword],
+    `INSERT INTO users (id, userId, username, email, password, firstName, middleName, lastName, role, status, program, yearLevel, createdAt, temporaryPassword)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [user.id, user.userId, user.username, user.email, user.password, user.firstName, user.middleName, user.lastName, user.role, user.status, user.program, user.yearLevel, user.createdAt, user.temporaryPassword],
   );
 
+  await createActivityLog(req.body.actorId || "system", req.body.actorName || "Admin", role === "student" ? "Created student account" : "Created staff account", `${user.firstName} ${user.lastName} (${user.role})`, user.role);
+  await createNotificationRecord(user.id, "schedule", "Account Ready", `Your account has been created successfully. Use your username and temporary password to sign in.`, user.id);
+
   if (role === "student") {
-    const studentId = `${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`;
+    const generatedStudentId = `${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`;
+    const normalizedStudentId = studentId ? String(studentId).trim() : generatedStudentId;
     const student = {
       id: crypto.randomUUID(),
-      studentId: studentId,
+      studentId: normalizedStudentId,
       firstName: user.firstName,
       lastName: user.lastName,
-      middleName: null,
-      suffix: null,
+      middleName: user.middleName,
+      suffix: suffix ? String(suffix).trim() : null,
       email: user.email,
       password: user.password,
-      gender: null,
+      gender: gender ? String(gender) : null,
       dob: null,
       age: null,
       civilStatus: null,
@@ -720,11 +832,11 @@ app.post("/api/users", async (req, res) => {
       religion: null,
       educationLevel: "College",
       program: user.program || "",
-      yearLevel: user.yearLevel || "1st Year",
+      yearLevel: "1st Year",
       gradeLevel: "",
       strand: "",
-      studentType: null,
-      academicYear: `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`,
+      studentType: "Incoming Freshman",
+      academicYear: academicYear ? String(academicYear) : `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`,
       semester: "1st Semester",
       section: null,
       previousSchool: null,
@@ -751,27 +863,22 @@ app.post("/api/users", async (req, res) => {
       emergencyContact: null,
       emergencyAddress: null,
       emergencyRelation: null,
-      status: "approved",
+      status: "not_started",
       submittedAt: new Date().toISOString(),
       reviewedAt: new Date().toISOString(),
       reviewNote: "Created by admin",
     };
     await run(
       db,
-      `INSERT INTO students (id, studentId, firstName, lastName, middleName, suffix, email, password, gender, dob, age, civilStatus, nationality, religion, educationLevel, program, yearLevel, gradeLevel, strand, studentType, academicYear, semester, section, previousSchool, lastGrade, contactNumber, address, city, province, zip, fatherName, fatherOccupation, fatherContact, motherName, motherOccupation, motherContact, guardianName, guardianOccupation, guardianContact, guardianRelation, parentName, parentContact, parentAddress, emergencyName, emergencyContact, emergencyAddress, emergencyRelation, status, submittedAt, reviewedAt, reviewNote)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO students (id, studentId, firstName, lastName, middleName, suffix, email, password, gender, educationLevel, program, yearLevel, studentType, academicYear, semester, status, submittedAt, reviewedAt, reviewNote, firstLoginAt, lastLoginAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         student.id, student.studentId, student.firstName, student.lastName, student.middleName, student.suffix,
-        student.email, student.password, student.gender, student.dob, student.age, student.civilStatus,
-        student.nationality, student.religion, student.educationLevel, student.program, student.yearLevel,
-        student.gradeLevel, student.strand, student.studentType, student.academicYear, student.semester,
-        student.section, student.previousSchool, student.lastGrade, student.contactNumber, student.address,
-        student.city, student.province, student.zip, student.fatherName, student.fatherOccupation,
-        student.fatherContact, student.motherName, student.motherOccupation, student.motherContact,
-        student.guardianName, student.guardianOccupation, student.guardianContact, student.guardianRelation,
-        student.parentName, student.parentContact, student.parentAddress, student.emergencyName,
-        student.emergencyContact, student.emergencyAddress, student.emergencyRelation, student.status,
+        student.email, student.password, student.gender, student.educationLevel, student.program, student.yearLevel,
+        student.studentType, student.academicYear, student.semester, student.status,
         student.submittedAt, student.reviewedAt, student.reviewNote,
+        null,
+        null,
       ],
     );
   }
@@ -826,9 +933,16 @@ app.patch("/api/users/:id/password", async (req, res) => {
 app.post("/api/users/login", async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: "Email and password are required" });
-  const user = await get(db, "SELECT id, userId, username, firstName, middleName, lastName, email, role, status, program, yearLevel, createdAt, temporaryPassword FROM users WHERE LOWER(email) = LOWER(?) AND password = ?", [email, password]);
+  const user = await get(db, "SELECT id, userId, username, firstName, middleName, lastName, email, role, status, program, yearLevel, createdAt, temporaryPassword, firstLoginAt, lastLoginAt FROM users WHERE LOWER(email) = LOWER(?) AND password = ?", [email, password]);
   if (!user) return res.status(401).json({ error: "Invalid credentials" });
-  res.json(user);
+  const now = new Date().toISOString();
+  const isFirstLogin = !user.firstLoginAt;
+  await run(db, "UPDATE users SET firstLoginAt = COALESCE(firstLoginAt, ?), lastLoginAt = ? WHERE id = ?", [now, now, user.id]);
+  if (isFirstLogin) {
+    await createNotificationRecord(user.id, "schedule", "Welcome to PIAT", "Welcome! Your account is ready to use. Please sign in with your temporary password and update it when prompted.", user.id);
+  }
+  const updatedUser = await get(db, "SELECT id, userId, username, firstName, middleName, lastName, email, role, status, program, yearLevel, createdAt, temporaryPassword, firstLoginAt, lastLoginAt FROM users WHERE id = ?", [user.id]);
+  res.json(updatedUser);
 });
 
 // Enrollments endpoints
@@ -848,6 +962,15 @@ app.post("/api/enrollments", async (req, res) => {
   }
 
   const enrollments = [];
+  if (!subjectIds.length) {
+    const student = await get(db, "SELECT * FROM students WHERE studentId = ?", [studentId]);
+    if (student) {
+      const synced = await syncStudentEnrollment(student);
+      res.status(201).json(synced);
+      return;
+    }
+  }
+
   for (const subjectId of subjectIds) {
     const existing = await get(db, "SELECT * FROM enrollments WHERE studentId = ? AND subjectId = ? AND status = 'enrolled'", [studentId, subjectId]);
     if (!existing) {
@@ -885,7 +1008,7 @@ app.get("/api/programs/detailed", async (_req, res) => {
 });
 
 app.get("/api/dashboard/registrar", async (_req, res) => {
-  const pendingApplications = await get(db, "SELECT COUNT(*) AS count FROM students WHERE status = 'pending'");
+  const pendingApplications = await get(db, "SELECT COUNT(*) AS count FROM students WHERE status IN ('submitted', 'under_review', 'pending')");
   const approvedStudents = await get(db, "SELECT COUNT(*) AS count FROM students WHERE status = 'approved'");
   const pendingEnrollments = await get(db, "SELECT COUNT(*) AS count FROM enrollments WHERE status = 'enrolled'");
   const totalSubjects = await get(db, "SELECT COUNT(*) AS count FROM subjects");

@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Shield, AlertTriangle, Lock, Eye } from "lucide-react";
 import { motion } from "framer-motion";
 import { StatCard } from "@/components/StatCard";
-import { useUsers } from "@/lib/users-store";
+import { useActivityLogs, useUsers } from "@/lib/users-store";
 
 export const Route = createFileRoute("/dashboard/admin/security")({
   component: AdminSecurity,
@@ -10,6 +10,7 @@ export const Route = createFileRoute("/dashboard/admin/security")({
 
 function AdminSecurity() {
   const users = useUsers();
+  const activityLogs = useActivityLogs();
   
   const activeUsers = users.filter((u) => u.status === "active").length;
   const twoFactorEnabled = users.filter((u) => u.temporaryPassword).length;
@@ -41,24 +42,24 @@ function AdminSecurity() {
 
       <div className="rounded-xl border bg-card p-5 shadow-sm">
         <h2 className="font-heading text-sm font-semibold text-card-foreground">Recent Activity</h2>
-        {users.length === 0 ? (
+        {activityLogs.length === 0 ? (
           <p className="mt-4 text-sm text-muted-foreground py-8 text-center">
-            No user accounts registered yet.
+            No activity recorded yet.
           </p>
         ) : (
           <div className="mt-4 space-y-2">
-            {users.slice(0, 5).map((u, i) => (
-              <motion.div key={u.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}
+            {activityLogs.map((log, i) => (
+              <motion.div key={log.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}
                 className="flex items-center justify-between rounded-lg bg-muted/50 px-4 py-3">
                 <div className="flex items-center gap-3">
                   <div className="h-2.5 w-2.5 rounded-full bg-success" />
                   <div>
-                    <p className="text-sm font-medium text-foreground">{u.role} account created</p>
-                    <p className="text-xs text-muted-foreground">{u.email}</p>
+                    <p className="text-sm font-medium text-foreground">{log.action}</p>
+                    <p className="text-xs text-muted-foreground">{log.details}</p>
                   </div>
                 </div>
                 <p className="text-[10px] text-muted-foreground">
-                  {new Date(u.createdAt).toLocaleDateString()}
+                  {new Date(log.createdAt).toLocaleDateString()}
                 </p>
               </motion.div>
             ))}
