@@ -29,13 +29,14 @@ export async function addOrUpdateGrade(
   period?: "prelim" | "midterm" | "final",
   type?: "activity" | "quiz" | "exam" | "overall",
   component?: string,
+  status?: GradeEntry["status"],
 ): Promise<GradeEntry> {
-  const saved = await saveGrade({ studentId, subjectId, grade, remarks });
+  const saved = await saveGrade({ studentId, subjectId, grade, remarks, period, type, component, status });
   if (period && type) {
     saved.period = period;
     saved.type = type;
     saved.component = component;
-    saved.status = "draft";
+    saved.status = status ?? "draft";
   }
   broadcastUpdate();
   return saved;

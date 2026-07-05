@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { motion } from "framer-motion";
 import { BookOpen, Users, Calendar, MapPin, GraduationCap, ArrowLeft, Search } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
@@ -115,12 +115,13 @@ function SubjectDetailsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <a
-          href="/dashboard/faculty/subjects"
+        <Link
+          to="/dashboard/faculty/subjects"
           className="flex h-8 w-8 items-center justify-center rounded-lg border bg-card hover:bg-muted"
+          aria-label="Back to subjects"
         >
           <ArrowLeft className="h-4 w-4" />
-        </a>
+        </Link>
         <div>
           <h1 className="font-heading text-xl font-bold text-foreground">{subject.code}</h1>
           <p className="text-sm text-muted-foreground">{subject.title}</p>

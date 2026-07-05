@@ -12,6 +12,41 @@ app.use(express.json());
 const db = await openDb();
 await initDb(db);
 
+async function createNotificationRecord(userId, type, title, message, relatedId = null) {
+  const notification = {
+    id: crypto.randomUUID(),
+    userId: String(userId),
+    type: String(type),
+    title: String(title).trim(),
+    message: String(message).trim(),
+    read: 0,
+    createdAt: Date.now(),
+    relatedId: relatedId ? String(relatedId) : null,
+  };
+
+  await run(
+    db,
+    `INSERT INTO notifications (id, userId, type, title, message, read, createdAt, relatedId)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [notification.id, notification.userId, notification.type, notification.title, notification.message, notification.read, notification.createdAt, notification.relatedId],
+  );
+
+  return notification;
+}
+
+async function notifyUsers(userIds, type, title, message, relatedId = null) {
+  const notifications = [];
+  for (const userId of userIds) {
+    notifications.push(await createNotificationRecord(userId, type, title, message, relatedId));
+  }
+  return notifications;
+}
+
+async function notifyRegistrarUsers(type, title, message, relatedId = null) {
+  const users = await all(db, "SELECT id FROM users WHERE role = 'registrar' AND status = 'active'");
+  return notifyUsers(users.map((user) => user.id), type, title, message, relatedId);
+}
+
 app.get("/api/subjects", async (req, res) => {
   const rows = await all(
     db,
@@ -65,6 +100,12 @@ app.post("/api/subjects", async (req, res) => {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [subject.id, subject.code, subject.title, subject.units, subject.schedule, subject.room, subject.instructor, subject.program, subject.yearLevel, subject.semester, subject.facultyId, subject.academicYear, subject.addedAt],
   );
+  if (subject.facultyId) {
+    const faculty = await get(db, "SELECT id FROM users WHERE id = ?", [subject.facultyId]);
+    if (faculty) {
+      await createNotificationRecord(faculty.id, "schedule", "Faculty Assignment Completed", `${subject.code} has been assigned to you.`, subject.id);
+    }
+  }
   res.status(201).json(subject);
 });
 
@@ -90,6 +131,12 @@ app.put("/api/subjects/:id", async (req, res) => {
     `UPDATE subjects SET code = ?, title = ?, units = ?, schedule = ?, room = ?, instructor = ?, program = ?, yearLevel = ?, semester = ?, facultyId = ? WHERE id = ?`,
     [updated.code, updated.title, updated.units, updated.schedule, updated.room, updated.instructor, updated.program, updated.yearLevel, updated.semester, updated.facultyId, req.params.id],
   );
+  if (updated.facultyId && updated.facultyId !== existing.facultyId) {
+    const faculty = await get(db, "SELECT id FROM users WHERE id = ?", [updated.facultyId]);
+    if (faculty) {
+      await createNotificationRecord(faculty.id, "schedule", "Faculty Assignment Completed", `${updated.code} has been assigned to you.`, updated.id);
+    }
+  }
   res.json(updated);
 });
 
@@ -277,6 +324,7 @@ contactNumber: contactNumber ? String(contactNumber).trim() : null,
       student.reviewNote,
     ],
   );
+  await notifyRegistrarUsers("registration", "New Registration Submitted", `${student.firstName} ${student.lastName} submitted a new application.`, student.studentId);
   res.status(201).json(student);
 });
 
@@ -390,6 +438,12 @@ app.put("/api/students/:studentId", async (req, res) => {
       req.params.studentId,
     ],
   );
+  if (updates.status === "approved" && existing.status !== "approved") {
+    await createNotificationRecord(req.params.studentId, "schedule", "Application Approved", "Your registration has been approved. Please complete enrollment.", req.params.studentId);
+  }
+  if (updates.status === "rejected" && existing.status !== "rejected") {
+    await createNotificationRecord(req.params.studentId, "schedule", "Application Rejected", "Your registration was not approved. Please contact the registrar for details.", req.params.studentId);
+  }
   res.json(updates);
 });
 
@@ -459,6 +513,9 @@ app.post("/api/grades", async (req, res) => {
     `INSERT INTO grades (id, studentId, subjectId, grade, remarks, period, type, component, status, submittedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [entry.id, entry.studentId, entry.subjectId, entry.grade, entry.remarks, entry.period, entry.type, entry.component, entry.status, entry.submittedAt],
   );
+  if (entry.status === "submitted" || entry.status === "finalized") {
+    await createNotificationRecord(studentId, "grade", "Grade Posted", `Your grades have been submitted for the selected subject.`, entry.subjectId);
+  }
   res.status(201).json(entry);
 });
 
@@ -811,6 +868,9 @@ app.post("/api/enrollments", async (req, res) => {
       enrollments.push(enrollment);
     }
   }
+  if (enrollments.length > 0) {
+    await createNotificationRecord(studentId, "schedule", "Enrollment Completed", `You have been enrolled in ${enrollments.length} subject(s).`, studentId);
+  }
   res.status(201).json(enrollments);
 });
 
@@ -840,7 +900,7 @@ app.get("/api/dashboard/registrar", async (_req, res) => {
      FROM students s
      WHERE s.status = 'approved'
        AND EXISTS (SELECT 1 FROM enrollments e WHERE e.studentId = s.studentId AND e.status = 'enrolled')
-       AND EXISTS (SELECT 1 FROM grades g WHERE g.studentId = s.studentId)
+       AND EXISTS (SELECT 1 FROM grades g WHERE g.studentId = s.studentId AND g.status = 'finalized')
        AND NOT EXISTS (SELECT 1 FROM grades g WHERE g.studentId = s.studentId AND g.status = 'draft')`,
   );
   const recentActivities = await all(
@@ -944,7 +1004,7 @@ app.get("/api/students/eligible-for-reenrollment", async (_req, res) => {
      FROM students s
      WHERE s.status = 'approved'
      AND EXISTS (SELECT 1 FROM enrollments e WHERE e.studentId = s.studentId AND e.status = 'enrolled')
-     AND EXISTS (SELECT 1 FROM grades g WHERE g.studentId = s.studentId)
+     AND EXISTS (SELECT 1 FROM grades g WHERE g.studentId = s.studentId AND g.status = 'finalized')
      AND NOT EXISTS (SELECT 1 FROM grades g WHERE g.studentId = s.studentId AND g.status = 'draft')`,
   );
   res.json(rows);
@@ -989,7 +1049,18 @@ app.post("/api/students/:studentId/reenroll", async (req, res) => {
   }
 
   const updated = await get(db, "SELECT * FROM students WHERE studentId = ?", [studentId]);
+  await createNotificationRecord(studentId, "schedule", "Re-enrollment Opened", "Your re-enrollment has been processed for the next term.", studentId);
   res.json({ student: updated, enrollmentsCreated: createdEnrollments.length });
+});
+
+app.post("/api/students/:studentId/finalize-records", async (req, res) => {
+  const { studentId } = req.params;
+  const rows = await all(db, "SELECT id FROM grades WHERE studentId = ?", [studentId]);
+  for (const row of rows) {
+    await run(db, "UPDATE grades SET status = 'finalized' WHERE id = ?", [row.id]);
+  }
+  await createNotificationRecord(studentId, "grade", "Academic Records Finalized", "Your academic records have been finalized by the Registrar.", studentId);
+  res.json({ finalizedCount: rows.length });
 });
 
 app.get("/api/reports/enrollment", async (_req, res) => {

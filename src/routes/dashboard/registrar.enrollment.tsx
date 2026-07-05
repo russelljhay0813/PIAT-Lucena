@@ -172,6 +172,7 @@ function RegistrarEnrollment() {
           value={programFilter}
           onChange={(e) => setProgramFilter(e.target.value)}
           className="rounded-lg border bg-card px-3 py-1.5 text-xs"
+          aria-label="Filter by program"
         >
           <option value="All">All Programs</option>
           {programs.map((p) => (
@@ -184,6 +185,7 @@ function RegistrarEnrollment() {
           value={yearFilter}
           onChange={(e) => setYearFilter(e.target.value)}
           className="rounded-lg border bg-card px-3 py-1.5 text-xs"
+          aria-label="Filter by year level"
         >
           <option value="All">All Years</option>
           {["1st Year", "2nd Year", "3rd Year", "4th Year"].map((y) => (
@@ -267,7 +269,7 @@ function RegistrarEnrollment() {
           >
             <div className="flex items-center justify-between">
               <h2 className="font-heading text-lg font-bold text-foreground">Enrolled Subjects</h2>
-              <button onClick={() => setSelectedStudent(null)} className="text-muted-foreground hover:text-foreground">
+              <button onClick={() => setSelectedStudent(null)} className="text-muted-foreground hover:text-foreground" aria-label="Close enrolled subjects dialog">
                 <X className="h-4 w-4" />
               </button>
             </div>
@@ -317,6 +319,7 @@ function RegistrarEnrollment() {
                     value={selectedYearLevel}
                     onChange={(e) => { setSelectedYearLevel(e.target.value); loadCurriculumForStudent(selectedStudent); }}
                     className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
+                    aria-label="Select year level"
                   >
                     {["1st Year", "2nd Year", "3rd Year", "4th Year"].map((y) => (
                       <option key={y} value={y}>{y}</option>
@@ -329,6 +332,7 @@ function RegistrarEnrollment() {
                     value={selectedSemester}
                     onChange={(e) => { setSelectedSemester(e.target.value); loadCurriculumForStudent(selectedStudent); }}
                     className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
+                    aria-label="Select semester"
                   >
                     {["1st Semester", "2nd Semester", "Summer"].map((s) => (
                       <option key={s} value={s}>{s}</option>

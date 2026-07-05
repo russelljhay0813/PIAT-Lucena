@@ -1,15 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { StatCard } from "@/components/StatCard";
-import { BookOpen, Users, Clock, CheckCircle, Calendar, BarChart3, Megaphone } from "lucide-react";
+import { BookOpen, Users, CheckCircle, Calendar, BarChart3, Megaphone, Clock } from "lucide-react";
 import { motion } from "framer-motion";
 import { useAuth } from "@/lib/auth-context";
 import { useMemo, useEffect, useState, useCallback } from "react";
-import { fetchSubjects, type Subject } from "@/lib/api";
-import { fetchEnrollments, type StudentEnrollment } from "@/lib/api";
-import type { AttendanceRecord } from "@/lib/api";
-import type { GradeEntry } from "@/lib/api";
-import { fetchGrades } from "@/lib/api";
-import { fetchAttendanceRecords } from "@/lib/api";
+import { fetchSubjects, type Subject, fetchEnrollments, type StudentEnrollment, fetchGrades, fetchAttendanceRecords, fetchNotifications, type NotificationItem, fetchAnnouncements } from "@/lib/api";
 
 export const Route = createFileRoute("/dashboard/faculty/")({
   component: FacultyDashboard,
@@ -49,8 +44,12 @@ function FacultyDashboard() {
   const [recentGrades, setRecentGrades] = useState<RecentGrade[]>([]);
   const [recentAttendance, setRecentAttendance] = useState<RecentAttendance[]>([]);
   const [recentAnnouncements, setRecentAnnouncements] = useState<AnnouncementItem[]>([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [todayAttendanceCount, setTodayAttendanceCount] = useState(0);
   const [pendingGradesCount, setPendingGradesCount] = useState(0);
+  const [completedGradesCount, setCompletedGradesCount] = useState(0);
+  const [currentSemester, setCurrentSemester] = useState("—");
+  const [currentAcademicYear, setCurrentAcademicYear] = useState("—");
 
   const today = new Date().toISOString().slice(0, 10);
   const todayToken = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"][new Date().getDay()];
@@ -68,13 +67,62 @@ function FacultyDashboard() {
   const loadFacultyData = useCallback(async () => {
     if (!user?.id) return;
     try {
-      const allSubjects = await fetchSubjects();
-      const facultySubjects = allSubjects.filter((s) => s.facultyId === user.id);
-      setFacultySubjects(facultySubjects);
+      const [allSubjects, allEnrollments, allGrades, notificationData, announcementData] = await Promise.all([
+        fetchSubjects(),
+        fetchEnrollments(),
+        fetchGrades(),
+        fetchNotifications(user.id),
+        fetchAnnouncements(),
+      ]);
+      const facultyOnly = allSubjects.filter((s) => s.facultyId === user.id);
+      const subjectIds = facultyOnly.map((s) => s.id);
+      setFacultySubjects(facultyOnly);
+      setEnrollments(allEnrollments);
+      setRecentGrades(
+        allGrades
+          .filter((g) => subjectIds.includes(g.subjectId))
+          .sort((a, b) => b.submittedAt - a.submittedAt)
+          .slice(0, 5)
+          .map((g) => ({
+            studentId: g.studentId,
+            studentName: `${g.studentFirstName || ""} ${g.studentLastName || ""}`.trim() || g.studentId,
+            subjectCode: g.subjectCode || "",
+            subjectTitle: g.subjectTitle || "",
+            grade: g.grade,
+            period: g.period,
+            createdAt: g.submittedAt,
+          })),
+      );
+      setPendingGradesCount(allGrades.filter((g) => subjectIds.includes(g.subjectId) && g.status === "draft").length);
+      setCompletedGradesCount(allGrades.filter((g) => subjectIds.includes(g.subjectId) && (g.status === "submitted" || g.status === "finalized")).length);
+      setCurrentSemester(user.semester || facultyOnly[0]?.semester || "—");
+      setCurrentAcademicYear(user.academicYear || facultyOnly[0]?.academicYear || "—");
+      setNotifications(notificationData.slice(0, 5));
+      setRecentAnnouncements(
+        announcementData
+          .filter((a) => a.audience === "faculty" || a.audience === "all")
+          .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
+          .slice(0, 3)
+          .map((a) => ({
+            id: a.id,
+            title: a.title,
+            body: a.body,
+            authorName: a.authorName || "PIAT",
+            createdAt: a.createdAt ?? Date.now(),
+          })),
+      );
     } catch {
       setFacultySubjects([]);
+      setEnrollments([]);
+      setRecentGrades([]);
+      setPendingGradesCount(0);
+      setCompletedGradesCount(0);
+      setCurrentSemester("—");
+      setCurrentAcademicYear("—");
+      setNotifications([]);
+      setRecentAnnouncements([]);
     }
-  }, [user?.id]);
+  }, [user?.id, user?.semester, user?.academicYear]);
 
   useEffect(() => {
     loadFacultyData();
@@ -93,43 +141,6 @@ function FacultyDashboard() {
     const subjectIds = facultySubjects.map((s) => s.id);
     return enrollments.filter((e) => subjectIds.includes(e.subjectId)).length;
   }, [facultySubjects, enrollments]);
-
-  useEffect(() => {
-    const loadEnrollments = async () => {
-      try {
-        const allEnrollments = await fetchEnrollments();
-        setEnrollments(allEnrollments);
-      } catch {
-        setEnrollments([]);
-      }
-    };
-    loadEnrollments();
-  }, []);
-
-  useEffect(() => {
-    const loadRecentGrades = async () => {
-      try {
-        const allGrades = await fetchGrades();
-        const subjectIds = facultySubjects.map((s) => s.id);
-        const recent = allGrades
-          .filter((g) => subjectIds.includes(g.subjectId))
-          .sort((a, b) => b.submittedAt - a.submittedAt)
-          .slice(0, 5);
-        setRecentGrades(recent.map((g) => ({
-          studentId: g.studentId,
-          studentName: `${g.studentFirstName || ""} ${g.studentLastName || ""}`.trim() || g.studentId,
-          subjectCode: g.subjectCode || "",
-          subjectTitle: g.subjectTitle || "",
-          grade: g.grade,
-          period: g.period,
-          createdAt: g.submittedAt,
-        })));
-      } catch {
-        setRecentGrades([]);
-      }
-    };
-    if (facultySubjects.length > 0) loadRecentGrades();
-  }, [facultySubjects]);
 
   useEffect(() => {
     const loadTodayAttendance = async () => {
@@ -160,36 +171,6 @@ function FacultyDashboard() {
     if (facultySubjects.length > 0) loadTodayAttendance();
   }, [facultySubjects, today]);
 
-  useEffect(() => {
-    const loadAnnouncements = async () => {
-      try {
-        const res = await fetch(`${import.meta.env.VITE_API_BASE ?? ""}/api/announcements`).then((r) => r.json());
-        const facultyAnns = res
-          .filter((a: any) => a.audience === "faculty" || a.audience === "all")
-          .sort((a: any, b: any) => b.createdAt - a.createdAt)
-          .slice(0, 3);
-        setRecentAnnouncements(facultyAnns);
-      } catch {
-        setRecentAnnouncements([]);
-      }
-    };
-    loadAnnouncements();
-  }, []);
-
-  useEffect(() => {
-    const loadPendingGrades = async () => {
-      try {
-        const allGrades = await fetchGrades();
-        const subjectIds = facultySubjects.map((s) => s.id);
-        const pending = allGrades.filter((g) => subjectIds.includes(g.subjectId) && g.status === "draft");
-        setPendingGradesCount(pending.length);
-      } catch {
-        setPendingGradesCount(0);
-      }
-    };
-    if (facultySubjects.length > 0) loadPendingGrades();
-  }, [facultySubjects]);
-
   const getGradeStatus = (grade: number) => {
     if (grade <= 1.25) return { label: "Excellent", color: "text-green-600" };
     if (grade <= 1.75) return { label: "Very Good", color: "text-blue-600" };
@@ -207,31 +188,43 @@ function FacultyDashboard() {
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {[
           {
-            title: "Assigned Subjects",
+            title: "Total Assigned Subjects",
             value: String(facultySubjects.length),
-            subtitle: "Current semester",
+            subtitle: "Registrar-assigned classes",
             icon: BookOpen,
           },
           {
-            title: "Total Students",
+            title: "Total Enrolled Students",
             value: String(totalStudents),
-            subtitle: "Across all subjects",
+            subtitle: "Across all assigned subjects",
             icon: Users,
           },
           {
-            title: "Classes Today",
-            value: String(todayClasses.length),
-            subtitle: todayToken,
+            title: "Subjects with Pending Grades",
+            value: String(pendingGradesCount),
+            subtitle: "Draft grade entries",
+            icon: Clock,
+          },
+          {
+            title: "Subjects with Completed Grades",
+            value: String(completedGradesCount),
+            subtitle: "Submitted or finalized",
+            icon: CheckCircle,
+          },
+          {
+            title: "Current Semester",
+            value: currentSemester,
+            subtitle: "Academic term",
             icon: Calendar,
           },
           {
-            title: "Attendance Submitted Today",
-            value: String(todayAttendanceCount),
-            subtitle: "Records submitted",
-            icon: CheckCircle,
+            title: "Current Academic Year",
+            value: currentAcademicYear,
+            subtitle: "Institution year",
+            icon: BarChart3,
           },
         ].map((stat, i) => (
           <motion.div
@@ -319,18 +312,16 @@ function FacultyDashboard() {
 
         <div className="rounded-xl border bg-card p-5 shadow-sm">
           <h2 className="font-heading text-sm font-semibold text-card-foreground mb-4">
-            Recently Submitted Attendance
+            Recent Notifications
           </h2>
-          {recentAttendance.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No attendance records today</p>
+          {notifications.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No notifications available</p>
           ) : (
             <div className="space-y-2">
-              {recentAttendance.map((a, i) => (
-                <div key={i} className="flex items-center justify-between text-xs">
-                  <span className="text-foreground">{a.studentId}</span>
-                  <span className={`capitalize ${a.status === "present" ? "text-green-600" : a.status === "late" ? "text-yellow-600" : "text-red-600"}`}>
-                    {a.status}
-                  </span>
+              {notifications.map((notification) => (
+                <div key={notification.id} className="rounded-lg border border-border/60 bg-muted/30 p-3 text-xs">
+                  <p className="font-medium text-foreground">{notification.title}</p>
+                  <p className="mt-1 text-muted-foreground">{notification.message}</p>
                 </div>
               ))}
             </div>

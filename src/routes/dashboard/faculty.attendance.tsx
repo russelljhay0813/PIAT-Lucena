@@ -127,13 +127,16 @@ function FacultyAttendance() {
       </div>
 
       <div className="flex flex-wrap gap-2 items-center">
-        <input
-          type="date"
-          value={selectedDate}
-          onChange={(e) => setSelectedDate(e.target.value)}
-          className="rounded-lg border bg-background px-3 py-1.5 text-xs"
-        />
-        <span className="text-xs text-muted-foreground">Select Date</span>
+        <div className="flex items-center gap-2">
+          <label htmlFor="attendance-date" className="text-xs text-muted-foreground">Select Date</label>
+          <input
+            id="attendance-date"
+            type="date"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="rounded-lg border bg-background px-3 py-1.5 text-xs"
+          />
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-2">

@@ -230,57 +230,57 @@ function FacultyGrades() {
       for (let act = 1; act <= 3; act++) {
         const grade = detailed.prelim.activities[`a${act}` as keyof typeof detailed.prelim.activities];
         if (grade > 0) {
-          await addOrUpdateGrade(studentId, selectedSubjectId, grade, undefined, "prelim", "activity", String(act));
+          await addOrUpdateGrade(studentId, selectedSubjectId, grade, undefined, "prelim", "activity", String(act), "draft");
           count++;
         }
       }
       for (let quiz = 1; quiz <= 3; quiz++) {
         const grade = detailed.prelim.quizzes[`q${quiz}` as keyof typeof detailed.prelim.quizzes];
         if (grade > 0) {
-          await addOrUpdateGrade(studentId, selectedSubjectId, grade, undefined, "prelim", "quiz", String(quiz));
+          await addOrUpdateGrade(studentId, selectedSubjectId, grade, undefined, "prelim", "quiz", String(quiz), "draft");
           count++;
         }
       }
       if (detailed.prelim.exam > 0) {
-        await addOrUpdateGrade(studentId, selectedSubjectId, detailed.prelim.exam, undefined, "prelim", "exam");
+        await addOrUpdateGrade(studentId, selectedSubjectId, detailed.prelim.exam, undefined, "prelim", "exam", undefined, "draft");
         count++;
       }
 
       for (let act = 1; act <= 3; act++) {
         const grade = detailed.midterm.activities[`a${act}` as keyof typeof detailed.midterm.activities];
         if (grade > 0) {
-          await addOrUpdateGrade(studentId, selectedSubjectId, grade, undefined, "midterm", "activity", String(act));
+          await addOrUpdateGrade(studentId, selectedSubjectId, grade, undefined, "midterm", "activity", String(act), "draft");
           count++;
         }
       }
       for (let quiz = 1; quiz <= 3; quiz++) {
         const grade = detailed.midterm.quizzes[`q${quiz}` as keyof typeof detailed.midterm.quizzes];
         if (grade > 0) {
-          await addOrUpdateGrade(studentId, selectedSubjectId, grade, undefined, "midterm", "quiz", String(quiz));
+          await addOrUpdateGrade(studentId, selectedSubjectId, grade, undefined, "midterm", "quiz", String(quiz), "draft");
           count++;
         }
       }
       if (detailed.midterm.exam > 0) {
-        await addOrUpdateGrade(studentId, selectedSubjectId, detailed.midterm.exam, undefined, "midterm", "exam");
+        await addOrUpdateGrade(studentId, selectedSubjectId, detailed.midterm.exam, undefined, "midterm", "exam", undefined, "draft");
         count++;
       }
 
       for (let act = 1; act <= 3; act++) {
         const grade = detailed.final.activities[`a${act}` as keyof typeof detailed.final.activities];
         if (grade > 0) {
-          await addOrUpdateGrade(studentId, selectedSubjectId, grade, undefined, "final", "activity", String(act));
+          await addOrUpdateGrade(studentId, selectedSubjectId, grade, undefined, "final", "activity", String(act), "draft");
           count++;
         }
       }
       for (let quiz = 1; quiz <= 3; quiz++) {
         const grade = detailed.final.quizzes[`q${quiz}` as keyof typeof detailed.final.quizzes];
         if (grade > 0) {
-          await addOrUpdateGrade(studentId, selectedSubjectId, grade, undefined, "final", "quiz", String(quiz));
+          await addOrUpdateGrade(studentId, selectedSubjectId, grade, undefined, "final", "quiz", String(quiz), "draft");
           count++;
         }
       }
       if (detailed.final.exam > 0) {
-        await addOrUpdateGrade(studentId, selectedSubjectId, detailed.final.exam, undefined, "final", "exam");
+        await addOrUpdateGrade(studentId, selectedSubjectId, detailed.final.exam, undefined, "final", "exam", undefined, "draft");
         count++;
       }
 
@@ -290,7 +290,7 @@ function FacultyGrades() {
         detailed.final.grade || 0,
       );
       if (overall > 0) {
-        await addOrUpdateGrade(studentId, selectedSubjectId, overall, undefined, undefined, "overall");
+        await addOrUpdateGrade(studentId, selectedSubjectId, overall, undefined, undefined, "overall", undefined, "draft");
       }
     }
 
@@ -313,7 +313,7 @@ function FacultyGrades() {
       );
       
       if (overall > 0) {
-        await addOrUpdateGrade(studentId, selectedSubjectId, overall, undefined, undefined, "overall", undefined);
+        await addOrUpdateGrade(studentId, selectedSubjectId, overall, undefined, undefined, "overall", undefined, "submitted");
         count++;
       }
     }

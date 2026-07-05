@@ -129,6 +129,7 @@ function RegistrarAnnouncements() {
               <button
                 onClick={() => handleDelete(a.id)}
                 className="text-muted-foreground hover:text-destructive"
+                aria-label={`Delete announcement ${a.title}`}
               >
                 <Trash2 className="h-4 w-4" />
               </button>

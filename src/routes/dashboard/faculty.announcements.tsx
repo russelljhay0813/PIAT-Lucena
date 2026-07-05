@@ -168,10 +168,11 @@ function FacultyAnnouncements() {
 
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
-                    <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                    <label htmlFor="announcement-category" className="mb-1 block text-[11px] font-medium text-muted-foreground">
                       Category
                     </label>
                     <select
+                      id="announcement-category"
                       value={category}
                       onChange={(e) => setCategory(e.target.value as any)}
                       className="w-full rounded-lg border bg-background px-3 py-2 text-sm focus:border-accent focus:outline-none"
@@ -184,10 +185,11 @@ function FacultyAnnouncements() {
                   </div>
 
                   <div>
-                    <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                    <label htmlFor="announcement-subject" className="mb-1 block text-[11px] font-medium text-muted-foreground">
                       Subject (Optional)
                     </label>
                     <select
+                      id="announcement-subject"
                       value={selectedSubjectId}
                       onChange={(e) => setSelectedSubjectId(e.target.value)}
                       className="w-full rounded-lg border bg-background px-3 py-2 text-sm focus:border-accent focus:outline-none"

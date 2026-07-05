@@ -540,9 +540,9 @@ await run(
     }
   }
 
-  // Seed default admin user
-  const existingAdmins = await all(db, "SELECT * FROM users WHERE role = 'admin' LIMIT 1");
-  if (existingAdmins.length === 0) {
+  // Seed default users for local demo and development
+  const existingAdmin = await all(db, "SELECT * FROM users WHERE role = 'admin' LIMIT 1");
+  if (existingAdmin.length === 0) {
     const adminUser = {
       id: crypto.randomUUID(),
       userId: "ADM-00001",
@@ -559,6 +559,69 @@ await run(
       db,
       `INSERT INTO users (id, userId, username, email, password, firstName, lastName, role, status, program, yearLevel, createdAt, temporaryPassword) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [adminUser.id, adminUser.userId, adminUser.username, adminUser.email, adminUser.password, adminUser.firstName, adminUser.lastName, adminUser.role, adminUser.status, null, null, adminUser.createdAt, adminUser.password],
+    );
+  }
+
+  const existingRegistrar = await all(db, "SELECT * FROM users WHERE role = 'registrar' LIMIT 1");
+  if (existingRegistrar.length === 0) {
+    const registrarUser = {
+      id: crypto.randomUUID(),
+      userId: "REG-00001",
+      username: "registrar",
+      email: "registrar@example.com",
+      password: "password",
+      firstName: "Maria",
+      lastName: "Santos",
+      role: "registrar",
+      status: "active",
+      createdAt: new Date().toISOString(),
+    };
+    await run(
+      db,
+      `INSERT INTO users (id, userId, username, email, password, firstName, lastName, role, status, program, yearLevel, createdAt, temporaryPassword) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [registrarUser.id, registrarUser.userId, registrarUser.username, registrarUser.email, registrarUser.password, registrarUser.firstName, registrarUser.lastName, registrarUser.role, registrarUser.status, null, null, registrarUser.createdAt, registrarUser.password],
+    );
+  }
+
+  const existingFaculty = await all(db, "SELECT * FROM users WHERE role = 'faculty' LIMIT 1");
+  if (existingFaculty.length === 0) {
+    const facultyUser = {
+      id: crypto.randomUUID(),
+      userId: "FAC-00001",
+      username: "faculty",
+      email: "faculty@example.com",
+      password: "password",
+      firstName: "Ramon",
+      lastName: "Cruz",
+      role: "faculty",
+      status: "active",
+      createdAt: new Date().toISOString(),
+    };
+    await run(
+      db,
+      `INSERT INTO users (id, userId, username, email, password, firstName, lastName, role, status, program, yearLevel, createdAt, temporaryPassword) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [facultyUser.id, facultyUser.userId, facultyUser.username, facultyUser.email, facultyUser.password, facultyUser.firstName, facultyUser.lastName, facultyUser.role, facultyUser.status, "BSIT", "1st Year", facultyUser.createdAt, facultyUser.password],
+    );
+  }
+
+  const existingStudent = await all(db, "SELECT * FROM users WHERE role = 'student' LIMIT 1");
+  if (existingStudent.length === 0) {
+    const studentUser = {
+      id: crypto.randomUUID(),
+      userId: "STU-00001",
+      username: "student",
+      email: "student@example.com",
+      password: "password",
+      firstName: "Anna",
+      lastName: "Dela Cruz",
+      role: "student",
+      status: "active",
+      createdAt: new Date().toISOString(),
+    };
+    await run(
+      db,
+      `INSERT INTO users (id, userId, username, email, password, firstName, lastName, role, status, program, yearLevel, createdAt, temporaryPassword) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [studentUser.id, studentUser.userId, studentUser.username, studentUser.email, studentUser.password, studentUser.firstName, studentUser.lastName, studentUser.role, studentUser.status, "BSIT", "1st Year", studentUser.createdAt, studentUser.password],
     );
   }
 }

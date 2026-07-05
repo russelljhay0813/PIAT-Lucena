@@ -202,7 +202,7 @@ function RegistrarCurriculum() {
                                       <span className="text-foreground font-medium">{subj.subjectCode}</span>
                                       <span className="text-muted-foreground">{subj.subjectTitle}</span>
                                       <span className="text-muted-foreground">({subj.units} units)</span>
-                                      <button onClick={() => handleRemoveSubject(subj.id)} className="text-destructive hover:text-destructive/80">
+                                      <button onClick={() => handleRemoveSubject(subj.id)} className="text-destructive hover:text-destructive/80" aria-label={`Remove ${subj.subjectCode} from curriculum`}>
                                         <X className="h-3 w-3" />
                                       </button>
                                     </div>

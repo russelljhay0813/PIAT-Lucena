@@ -9,6 +9,7 @@ import {
   REGISTRATIONS_EVENT,
   type StudentRegistration,
 } from "@/lib/registrations-store";
+import { fetchStudents, updateStudent } from "@/lib/api";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/dashboard/registrar/registrations")({
@@ -23,7 +24,7 @@ function RegistrarRegistrations() {
 
   const refresh = async () => {
     try {
-      setList(await getRegistrations());
+      setList(await fetchStudents());
     } catch {
       setList([]);
     }
@@ -144,6 +145,7 @@ function RegistrarRegistrations() {
                     <button
                       onClick={() => setSelectedReg(r)}
                       className="inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-xs font-medium text-foreground hover:bg-muted"
+                      aria-label={`View application for ${r.firstName} ${r.lastName}`}
                     >
                       <Eye className="h-3.5 w-3.5" /> View
                     </button>
@@ -153,6 +155,7 @@ function RegistrarRegistrations() {
                           onClick={async () => {
                             await approveRegistration(r.id);
                             toast.success("Application approved");
+                            await refresh();
                           }}
                           className="inline-flex items-center gap-1.5 rounded-lg bg-success px-2 py-1 text-xs font-medium text-success-foreground hover:opacity-90"
                         >
@@ -163,6 +166,7 @@ function RegistrarRegistrations() {
                             const note = prompt("Reason for rejection (optional):") ?? undefined;
                             await rejectRegistration(r.id, note || undefined);
                             toast.success("Application rejected");
+                            await refresh();
                           }}
                           className="inline-flex items-center gap-1.5 rounded-lg bg-destructive/10 px-2 py-1 text-xs font-medium text-destructive hover:bg-destructive/20"
                         >

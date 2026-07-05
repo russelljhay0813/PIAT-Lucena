@@ -169,6 +169,10 @@ export async function fetchStudents(status?: string) {
   return request<StudentRegistration[]>(`/api/students${query}`);
 }
 
+export async function fetchStudentById(studentId: string) {
+  return request<StudentRegistration>(`/api/students/${encodeURIComponent(studentId)}`);
+}
+
 export async function createStudent(student: StudentRegistrationPayload) {
   return request<StudentRegistration>("/api/students", {
     method: "POST",
@@ -301,6 +305,31 @@ export interface StudentRegistration {
   submittedAt: string;
   reviewedAt?: string;
   reviewNote?: string;
+}
+
+export interface Announcement {
+  id: string;
+  title: string;
+  body: string;
+  category?: string;
+  audience?: string;
+  subjectId?: string | null;
+  pinned?: boolean;
+  authorName?: string;
+  authorRole?: string;
+  createdAt: number;
+  datePosted?: string;
+}
+
+export interface NotificationItem {
+  id: string;
+  userId: string;
+  type: string;
+  title: string;
+  message: string;
+  read: boolean;
+  createdAt: number;
+  relatedId?: string | null;
 }
 
 export interface GradeEntry {
@@ -499,7 +528,11 @@ export async function fetchReportCurriculum() {
 }
 
 export async function fetchAnnouncements() {
-  return request<any[]>("/api/announcements");
+  return request<Announcement[]>("/api/announcements");
+}
+
+export async function fetchNotifications(userId: string) {
+  return request<NotificationItem[]>(`/api/notifications?userId=${encodeURIComponent(userId)}`);
 }
 
 export async function createAnnouncement(announcement: { title: string; body: string; audience: string; authorName: string; authorRole: string }) {
