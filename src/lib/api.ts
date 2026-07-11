@@ -5,11 +5,25 @@ async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
   try {
+    const storedSession = typeof window !== "undefined" ? window.localStorage.getItem("piat-auth-user") : null;
+    const authUser = storedSession ? JSON.parse(storedSession) : null;
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...(opts.headers ?? {}),
+    };
+
+    if (authUser?.role) {
+      headers["x-user-role"] = authUser.role;
+    }
+    if (authUser?.id) {
+      headers["x-user-id"] = authUser.id;
+    }
+    if (authUser?.studentId) {
+      headers["x-user-student-id"] = authUser.studentId;
+    }
+
     const response = await fetch(`${API_BASE}${path}`, {
-      headers: {
-        "Content-Type": "application/json",
-        ...(opts.headers ?? {}),
-      },
+      headers,
       ...opts,
       signal: controller.signal,
     });
@@ -425,8 +439,12 @@ export async function createUser(user: {
   });
 }
 
-export async function fetchEnrollments(studentId?: string) {
-  const query = studentId ? `?studentId=${encodeURIComponent(studentId)}` : "";
+export async function fetchEnrollments(studentId?: string, academicYear?: string, semester?: string) {
+  const params = new URLSearchParams();
+  if (studentId) params.set("studentId", studentId);
+  if (academicYear) params.set("academicYear", academicYear);
+  if (semester) params.set("semester", semester);
+  const query = params.toString() ? `?${params.toString()}` : "";
   return request<StudentEnrollment[]>(`/api/enrollments${query}`);
 }
 

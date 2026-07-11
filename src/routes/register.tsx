@@ -13,7 +13,7 @@ export const Route = createFileRoute("/register")({
   head: () => ({
     meta: [
       { title: "Student Registration — PIAT" },
-      { name: "description", content: "Apply for admission to Philtech Institute Of Arts And Technology. Submit your registration for registrar approval." },
+      { name: "description", content: "Apply for admission to Philtech Institute Of Arts And Technology. Submit your registration for automatic approval and enrollment." },
     ],
   }),
   component: RegisterPage,
@@ -67,6 +67,7 @@ function RegisterPage() {
   const { user } = useAuth();
   const [step, setStep] = useState(1);
   const [submitted, setSubmitted] = useState(false);
+  const [submissionMessage, setSubmissionMessage] = useState<string>("");
   const [programs, setPrograms] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [studentRecord, setStudentRecord] = useState<StudentRegistration | null>(null);
@@ -110,7 +111,7 @@ function RegisterPage() {
           if (record) {
             setStudentRecord(record);
             const normalizedStatus = String(record.status || "").toLowerCase();
-            setSubmitted(normalizedStatus === "submitted" || normalizedStatus === "under_review");
+            setSubmitted(normalizedStatus === "submitted" || normalizedStatus === "under_review" || normalizedStatus === "approved");
             if (normalizedStatus === "approved") {
               navigate({ to: "/dashboard/student" });
               return;
@@ -235,6 +236,7 @@ function RegisterPage() {
         placeOfBirth: data.placeOfBirth || undefined,
         status: "submitted",
       });
+      setSubmissionMessage("Registration completed successfully. Your registration has been approved and you are now officially enrolled.");
       setSubmitted(true);
     } finally {
       setIsLoading(false);
@@ -251,7 +253,7 @@ function RegisterPage() {
           </div>
           <h1 className="font-heading text-xl font-bold text-foreground">Registration Submitted Successfully</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Your registration has been submitted successfully. Please wait for the Registrar to review and approve your application.
+            Registration completed successfully. Your registration has been approved and you are now officially enrolled.
           </p>
           <Link to="/" className="mt-6 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90">
             <ArrowLeft className="h-4 w-4" /> Back to Login
@@ -276,7 +278,7 @@ function RegisterPage() {
             <GraduationCap className="h-7 w-7" />
           </div>
           <h1 className="font-heading text-2xl font-bold text-foreground">Student Registration</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Complete all steps to submit your application for registrar approval.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Complete all steps to submit your registration. Your account will be approved automatically and enrollment will be created immediately.</p>
         </div>
 
         {/* Progress Steps */}

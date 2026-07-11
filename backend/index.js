@@ -1,16 +1,170 @@
 import express from "express";
 import cors from "cors";
 import crypto from "crypto";
-import { openDb, initDb, run, all, get } from "./db.js";
+import jwt from "jsonwebtoken";
+import { openDb, initDb, run, all, get, withTransaction } from "./db.js";
+import { normalizeStudentPayload, normalizeUserPayload } from "./schema-utils.js";
+import { resolveProgramIdForStudent } from "./reenrollment-utils.js";
+import { resolveAutoApprovalStatus, validateRegistrationPayload } from "./registration-workflow.js";
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+const RATE_LIMIT_MAX_REQUESTS = 8;
+const JWT_SECRET = process.env.JWT_SECRET || "piat_mobile_secret";
+const loginRateLimitStore = new Map();
+
+function generateJwtToken(user) {
+  return jwt.sign(
+    {
+      id: user.id,
+      role: user.role,
+      studentId: user.studentId || null,
+    },
+    JWT_SECRET,
+    { expiresIn: "7d" },
+  );
+}
+
+function getRequestIdentity(req) {
+  const authHeader = req.get("Authorization") || "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
+  if (token) {
+    try {
+      const payload = jwt.verify(token, JWT_SECRET);
+      return {
+        role: String(payload.role || "").toLowerCase(),
+        userId: String(payload.id || ""),
+        studentId: String(payload.studentId || ""),
+      };
+    } catch (error) {
+      // invalid token falls back to header-based identity
+    }
+  }
+
+  return {
+    role: String(req.get("x-user-role") || "").toLowerCase(),
+    userId: String(req.get("x-user-id") || ""),
+    studentId: String(req.get("x-user-student-id") || ""),
+  };
+}
 
 app.use(cors());
 app.use(express.json());
 
 const db = await openDb();
 await initDb(db);
+
+function sendError(res, status, message, details = null) {
+  return res.status(status).json({ error: message, ...(details ? { details } : {}) });
+}
+
+function validateRequiredFields(req, res, next, fields) {
+  const missing = fields.filter((field) => {
+    const value = req.body?.[field];
+    return value === undefined || value === null || (typeof value === "string" && !value.trim());
+  });
+
+  if (missing.length) {
+    return sendError(res, 400, "Missing required fields", missing);
+  }
+
+  return next();
+}
+
+function validateArrayField(req, res, next, fieldName) {
+  const value = req.body?.[fieldName];
+  if (!Array.isArray(value) || value.length === 0) {
+    return sendError(res, 400, `${fieldName} must be a non-empty array`);
+  }
+  return next();
+}
+
+function getClientKey(req) {
+  const forwarded = req.get("x-forwarded-for") || "";
+  return forwarded.split(",")[0].trim() || req.ip || req.socket.remoteAddress || "unknown";
+}
+
+function applyRateLimit(req, res, next) {
+  const key = getClientKey(req);
+  const now = Date.now();
+  const entries = loginRateLimitStore.get(key) || [];
+  const recent = entries.filter((timestamp) => now - timestamp < RATE_LIMIT_WINDOW_MS);
+
+  if (recent.length >= RATE_LIMIT_MAX_REQUESTS) {
+    return sendError(res, 429, "Too many login attempts. Please try again later.");
+  }
+
+  recent.push(now);
+  loginRateLimitStore.set(key, recent);
+  return next();
+}
+
+function requireRole(...allowedRoles) {
+  return (req, res, next) => {
+    const { role } = getRequestIdentity(req);
+    if (!allowedRoles.includes(role)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    req.userContext = getRequestIdentity(req);
+    next();
+  };
+}
+
+function requireSelfOrRole(resourceParamName, ...allowedRoles) {
+  return (req, res, next) => {
+    const { role, userId, studentId } = getRequestIdentity(req);
+    const requested = req.params[resourceParamName];
+    const isSelf = role === "student" && requested && (userId === requested || studentId === requested);
+    if (!allowedRoles.includes(role) && !isSelf) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    req.userContext = { role, userId, studentId };
+    next();
+  };
+}
+
+function safeCompare(a, b) {
+  const left = Buffer.from(String(a));
+  const right = Buffer.from(String(b));
+  if (left.length !== right.length) return false;
+  return crypto.timingSafeEqual(left, right);
+}
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const derived = crypto.scryptSync(String(password), salt, 64).toString("hex");
+  return `scrypt$${salt}$${derived}`;
+}
+
+function verifyPassword(password, storedPassword) {
+  if (!password || !storedPassword) return false;
+  const stored = String(storedPassword);
+  if (!stored.startsWith("scrypt$")) {
+    return safeCompare(password, stored);
+  }
+
+  const [, salt, expectedHash] = stored.split("$");
+  if (!salt || !expectedHash) return false;
+
+  const derived = crypto.scryptSync(String(password), salt, 64).toString("hex");
+  const expected = Buffer.from(expectedHash, "hex");
+  const actual = Buffer.from(derived, "hex");
+  if (expected.length !== actual.length) return false;
+  return crypto.timingSafeEqual(expected, actual);
+}
+
+function sanitizeStudentRecord(student) {
+  if (!student) return student;
+  const { password, ...rest } = student;
+  return rest;
+}
+
+function sanitizeUserRecord(user) {
+  if (!user) return user;
+  const { password, ...rest } = user;
+  return rest;
+}
 
 async function createNotificationRecord(userId, type, title, message, relatedId = null) {
   const notification = {
@@ -42,9 +196,17 @@ async function notifyUsers(userIds, type, title, message, relatedId = null) {
   return notifications;
 }
 
-async function notifyRegistrarUsers(type, title, message, relatedId = null) {
-  const users = await all(db, "SELECT id FROM users WHERE role = 'registrar' AND status = 'active'");
+async function notifyRoleUsers(role, type, title, message, relatedId = null) {
+  const users = await all(db, "SELECT id FROM users WHERE role = ? AND status = 'active'", [role]);
   return notifyUsers(users.map((user) => user.id), type, title, message, relatedId);
+}
+
+async function notifyRegistrarUsers(type, title, message, relatedId = null) {
+  return notifyRoleUsers("registrar", type, title, message, relatedId);
+}
+
+async function notifyAdminUsers(type, title, message, relatedId = null) {
+  return notifyRoleUsers("admin", type, title, message, relatedId);
 }
 
 async function createActivityLog(actorId, actorName, action, details, role) {
@@ -249,22 +411,22 @@ app.delete("/api/subjects/:id", async (req, res) => {
   res.status(204).end();
 });
 
-app.get("/api/students", async (req, res) => {
+app.get("/api/students", requireRole("admin", "registrar"), async (req, res) => {
   const status = req.query.status ? String(req.query.status) : null;
   const query = status
     ? { sql: "SELECT * FROM students WHERE status = ? ORDER BY lastName, firstName", params: [status] }
     : { sql: "SELECT * FROM students ORDER BY lastName, firstName", params: [] };
   const rows = await all(db, query.sql, query.params);
-  res.json(rows);
+  res.json(rows.map(sanitizeStudentRecord));
 });
 
-app.get("/api/students/:studentId", async (req, res) => {
+app.get("/api/students/:studentId", requireSelfOrRole("studentId", "admin", "registrar"), async (req, res) => {
   const row = await get(db, "SELECT * FROM students WHERE studentId = ?", [req.params.studentId]);
   if (!row) return res.status(404).json({ error: "Student not found" });
-  res.json(row);
+  res.json(sanitizeStudentRecord(row));
 });
 
-app.post("/api/students", async (req, res) => {
+app.post("/api/students", requireRole("admin", "registrar"), (req, res, next) => validateRequiredFields(req, res, next, ["firstName", "lastName", "email", "password", "educationLevel"]), async (req, res) => {
   const {
     firstName,
     lastName,
@@ -320,62 +482,63 @@ app.post("/api/students", async (req, res) => {
   }
   const students = await all(db, "SELECT studentId FROM students WHERE studentId LIKE ?", [`${new Date().getFullYear()}-%`]);
   const nextId = `${new Date().getFullYear()}-${String(students.length + 1).padStart(5, "0")}`;
-  const student = {
+  const passwordHash = hashPassword(String(password));
+  const student = normalizeStudentPayload({
     id: crypto.randomUUID(),
     studentId: nextId,
-    firstName: String(firstName).trim(),
-    lastName: String(lastName).trim(),
-    middleName: middleName ? String(middleName).trim() : null,
-    suffix: suffix ? String(suffix).trim() : null,
-    email: String(email).trim().toLowerCase(),
-    password: String(password),
-    gender: gender ? String(gender) : null,
-    dob: dob ? String(dob) : null,
-    age: age ? Number(age) : null,
-    civilStatus: civilStatus ? String(civilStatus) : null,
-    nationality: nationality ? String(nationality) : null,
-    religion: religion ? String(religion) : null,
-    educationLevel: String(educationLevel),
-    program: String(program || ""),
-    yearLevel: String(yearLevel || ""),
-    gradeLevel: String(gradeLevel || ""),
-    strand: String(strand || ""),
-    studentType: studentType ? String(studentType) : null,
-    academicYear: academicYear ? String(academicYear) : null,
-    semester: semester ? String(semester) : null,
-    section: section ? String(section) : null,
-    previousSchool: previousSchool ? String(previousSchool).trim() : null,
-    lastGrade: lastGrade ? String(lastGrade).trim() : null,
-contactNumber: contactNumber ? String(contactNumber).trim() : null,
-    address: address ? String(address).trim() : null,
-    city: city ? String(city).trim() : null,
-    province: province ? String(province).trim() : null,
-    zip: zip ? String(zip).trim() : null,
-    fatherName: fatherName ? String(fatherName).trim() : null,
-    fatherOccupation: fatherOccupation ? String(fatherOccupation).trim() : null,
-    fatherContact: fatherContact ? String(fatherContact).trim() : null,
-    motherName: motherName ? String(motherName).trim() : null,
-    motherOccupation: motherOccupation ? String(motherOccupation).trim() : null,
-    motherContact: motherContact ? String(motherContact).trim() : null,
-    guardianName: guardianName ? String(guardianName).trim() : null,
-    guardianOccupation: guardianOccupation ? String(guardianOccupation).trim() : null,
-    guardianContact: guardianContact ? String(guardianContact).trim() : null,
-    guardianRelation: guardianRelation ? String(guardianRelation).trim() : null,
-    parentName: parentName ? String(parentName).trim() : null,
-    parentContact: parentContact ? String(parentContact).trim() : null,
-    parentAddress: parentAddress ? String(parentAddress).trim() : null,
-    emergencyName: emergencyName ? String(emergencyName).trim() : null,
-    emergencyContact: emergencyContact ? String(emergencyContact).trim() : null,
-    emergencyAddress: emergencyAddress ? String(emergencyAddress).trim() : null,
-    emergencyRelation: emergencyRelation ? String(emergencyRelation).trim() : null,
-    placeOfBirth: placeOfBirth ? String(placeOfBirth).trim() : null,
-    barangay: barangay ? String(barangay).trim() : null,
-    parentRelationship: parentRelationship ? String(parentRelationship).trim() : null,
-    status: "submitted",
+    firstName,
+    lastName,
+    middleName,
+    suffix,
+    email,
+    password: passwordHash,
+    gender,
+    dob,
+    age,
+    civilStatus,
+    nationality,
+    religion,
+    educationLevel,
+    program,
+    yearLevel,
+    gradeLevel,
+    strand,
+    studentType,
+    academicYear,
+    semester,
+    section,
+    previousSchool,
+    lastGrade,
+    contactNumber,
+    address,
+    city,
+    province,
+    zip,
+    fatherName,
+    fatherOccupation,
+    fatherContact,
+    motherName,
+    motherOccupation,
+    motherContact,
+    guardianName,
+    guardianOccupation,
+    guardianContact,
+    guardianRelation,
+    parentName,
+    parentContact,
+    parentAddress,
+    emergencyName,
+    emergencyContact,
+    emergencyAddress,
+    emergencyRelation,
+    placeOfBirth,
+    barangay,
+    parentRelationship,
+    status: req.body.status,
     submittedAt: new Date().toISOString(),
     reviewedAt: null,
     reviewNote: null,
-  };
+  });
   await run(
     db,
     `INSERT INTO students (id, studentId, firstName, lastName, middleName, suffix, email, password, gender, educationLevel, program, yearLevel, studentType, academicYear, semester, status, submittedAt, reviewedAt, reviewNote, firstLoginAt, lastLoginAt)
@@ -404,22 +567,27 @@ contactNumber: contactNumber ? String(contactNumber).trim() : null,
       null,
     ],
   );
+  if (student.status === "approved") {
+    await syncStudentEnrollment(student);
+  }
+  await createActivityLog(req.userContext?.userId || "system", req.userContext?.role || "system", "Created student registration", `${student.firstName} ${student.lastName} (${student.studentId})`, req.userContext?.role || "system");
   await notifyRegistrarUsers("registration", "New Registration Submitted", `${student.firstName} ${student.lastName} submitted a new application.`, student.studentId);
-  res.status(201).json(student);
+  res.status(201).json(sanitizeStudentRecord(student));
 });
 
-app.put("/api/students/:studentId", async (req, res) => {
+app.put("/api/students/:studentId", requireSelfOrRole("studentId", "admin", "registrar"), async (req, res) => {
   const existing = await get(db, "SELECT * FROM students WHERE studentId = ?", [req.params.studentId]);
   if (!existing) return res.status(404).json({ error: "Student not found" });
-  const nextStatus = req.body.status ? String(req.body.status) : existing.status;
-  const updates = {
+
+  const requestedStatus = req.body.status ? String(req.body.status).toLowerCase() : existing.status;
+  const mergedStudentData = {
     ...existing,
     firstName: req.body.firstName ?? existing.firstName,
     lastName: req.body.lastName ?? existing.lastName,
     middleName: req.body.middleName ?? existing.middleName,
     suffix: req.body.suffix ?? existing.suffix,
     email: req.body.email ? String(req.body.email).trim().toLowerCase() : existing.email,
-    password: req.body.password ?? existing.password,
+    password: req.body.password && String(req.body.password).length > 0 ? hashPassword(String(req.body.password)) : existing.password,
     gender: req.body.gender ?? existing.gender,
     dob: req.body.dob ?? existing.dob,
     age: req.body.age ?? existing.age,
@@ -440,7 +608,6 @@ app.put("/api/students/:studentId", async (req, res) => {
     contactNumber: req.body.contactNumber ?? existing.contactNumber,
     address: req.body.address ?? existing.address,
     city: req.body.city ?? existing.city,
-    city: req.body.city ?? existing.city,
     province: req.body.province ?? existing.province,
     zip: req.body.zip ?? existing.zip,
     fatherName: req.body.fatherName ?? existing.fatherName,
@@ -460,96 +627,123 @@ app.put("/api/students/:studentId", async (req, res) => {
     emergencyContact: req.body.emergencyContact ?? existing.emergencyContact,
     emergencyAddress: req.body.emergencyAddress ?? existing.emergencyAddress,
     emergencyRelation: req.body.emergencyRelation ?? existing.emergencyRelation,
+    placeOfBirth: req.body.placeOfBirth ?? existing.placeOfBirth,
+    barangay: req.body.barangay ?? existing.barangay,
+    parentRelationship: req.body.parentRelationship ?? existing.parentRelationship,
+  };
+
+  const validationResult = validateRegistrationPayload(mergedStudentData);
+  const nextStatus = resolveAutoApprovalStatus(requestedStatus, validationResult);
+
+  const updates = normalizeStudentPayload({
+    ...mergedStudentData,
     status: nextStatus,
     submittedAt: req.body.submittedAt ?? existing.submittedAt ?? new Date().toISOString(),
-    reviewedAt: req.body.reviewedAt ?? existing.reviewedAt,
+    reviewedAt: nextStatus === "approved" && existing.status !== "approved" ? new Date().toISOString() : req.body.reviewedAt ?? existing.reviewedAt,
     reviewNote: req.body.reviewNote ?? existing.reviewNote,
-  };
-  await run(
-    db,
-    `UPDATE students SET firstName = ?, lastName = ?, middleName = ?, suffix = ?, email = ?, password = ?, gender = ?, dob = ?, age = ?, civilStatus = ?, nationality = ?, religion = ?, educationLevel = ?, program = ?, yearLevel = ?, gradeLevel = ?, strand = ?, studentType = ?, academicYear = ?, semester = ?, section = ?, previousSchool = ?, lastGrade = ?, contactNumber = ?, address = ?, city = ?, province = ?, zip = ?, fatherName = ?, fatherOccupation = ?, fatherContact = ?, motherName = ?, motherOccupation = ?, motherContact = ?, guardianName = ?, guardianOccupation = ?, guardianContact = ?, guardianRelation = ?, parentName = ?, parentContact = ?, parentAddress = ?, emergencyName = ?, emergencyContact = ?, emergencyAddress = ?, emergencyRelation = ?, placeOfBirth = ?, barangay = ?, parentRelationship = ?, status = ?, submittedAt = ?, reviewedAt = ?, reviewNote = ? WHERE studentId = ?`,
-    [
-      updates.firstName,
-      updates.lastName,
-      updates.middleName,
-      updates.suffix,
-      updates.email,
-      updates.password,
-      updates.gender,
-      updates.dob,
-      updates.age,
-      updates.civilStatus,
-      updates.nationality,
-      updates.religion,
-      updates.educationLevel,
-      updates.program,
-      updates.yearLevel,
-      updates.gradeLevel,
-      updates.strand,
-      updates.studentType,
-      updates.academicYear,
-      updates.semester,
-      updates.section,
-      updates.previousSchool,
-      updates.lastGrade,
-      updates.contactNumber,
-      updates.address,
-      updates.city,
-      updates.province,
-      updates.zip,
-      updates.fatherName,
-      updates.fatherOccupation,
-      updates.fatherContact,
-      updates.motherName,
-      updates.motherOccupation,
-      updates.motherContact,
-      updates.guardianName,
-      updates.guardianOccupation,
-      updates.guardianContact,
-      updates.guardianRelation,
-      updates.parentName,
-      updates.parentContact,
-      updates.parentAddress,
-      updates.emergencyName,
-      updates.emergencyContact,
-      updates.emergencyAddress,
-      updates.emergencyRelation,
-      updates.placeOfBirth,
-      updates.barangay,
-      updates.parentRelationship,
-      updates.status,
-      updates.submittedAt,
-      updates.reviewedAt,
-      updates.reviewNote,
-      req.params.studentId,
-    ],
-  );
-  if (updates.status === "approved" && existing.status !== "approved") {
-    const synced = await syncStudentEnrollment(updates);
-    await createNotificationRecord(req.params.studentId, "schedule", "Application Approved", `Your registration has been approved. ${synced.length > 0 ? "Your enrollment has been created." : "Please complete enrollment."}`, req.params.studentId);
-  }
-  if (updates.status === "rejected" && existing.status !== "rejected") {
-    await createNotificationRecord(req.params.studentId, "schedule", "Application Rejected", "Your registration was not approved. Please contact the registrar for details.", req.params.studentId);
-  }
-  res.json(updates);
+  });
+
+  const result = await withTransaction(db, async () => {
+    await run(
+      db,
+      `UPDATE students SET firstName = ?, lastName = ?, middleName = ?, suffix = ?, email = ?, password = ?, gender = ?, dob = ?, age = ?, civilStatus = ?, nationality = ?, religion = ?, educationLevel = ?, program = ?, yearLevel = ?, gradeLevel = ?, strand = ?, studentType = ?, academicYear = ?, semester = ?, section = ?, previousSchool = ?, lastGrade = ?, contactNumber = ?, address = ?, city = ?, province = ?, zip = ?, fatherName = ?, fatherOccupation = ?, fatherContact = ?, motherName = ?, motherOccupation = ?, motherContact = ?, guardianName = ?, guardianOccupation = ?, guardianContact = ?, guardianRelation = ?, parentName = ?, parentContact = ?, parentAddress = ?, emergencyName = ?, emergencyContact = ?, emergencyAddress = ?, emergencyRelation = ?, placeOfBirth = ?, barangay = ?, parentRelationship = ?, status = ?, submittedAt = ?, reviewedAt = ?, reviewNote = ? WHERE studentId = ?`,
+      [
+        updates.firstName,
+        updates.lastName,
+        updates.middleName,
+        updates.suffix,
+        updates.email,
+        updates.password,
+        updates.gender,
+        updates.dob,
+        updates.age,
+        updates.civilStatus,
+        updates.nationality,
+        updates.religion,
+        updates.educationLevel,
+        updates.program,
+        updates.yearLevel,
+        updates.gradeLevel,
+        updates.strand,
+        updates.studentType,
+        updates.academicYear,
+        updates.semester,
+        updates.section,
+        updates.previousSchool,
+        updates.lastGrade,
+        updates.contactNumber,
+        updates.address,
+        updates.city,
+        updates.province,
+        updates.zip,
+        updates.fatherName,
+        updates.fatherOccupation,
+        updates.fatherContact,
+        updates.motherName,
+        updates.motherOccupation,
+        updates.motherContact,
+        updates.guardianName,
+        updates.guardianOccupation,
+        updates.guardianContact,
+        updates.guardianRelation,
+        updates.parentName,
+        updates.parentContact,
+        updates.parentAddress,
+        updates.emergencyName,
+        updates.emergencyContact,
+        updates.emergencyAddress,
+        updates.emergencyRelation,
+        updates.placeOfBirth,
+        updates.barangay,
+        updates.parentRelationship,
+        updates.status,
+        updates.submittedAt,
+        updates.reviewedAt,
+        updates.reviewNote,
+        req.params.studentId,
+      ],
+    );
+    if (updates.status === "approved" && existing.status !== "approved") {
+      await syncStudentEnrollment(updates);
+      await createNotificationRecord(req.params.studentId, "schedule", "Registration Completed", "Your registration has been successfully completed and approved. You may now access your Student Dashboard.", req.params.studentId);
+      await notifyRegistrarUsers("registration", "New student registration approved", "A new student registration has been automatically approved and enrolled. The student record is now available for monitoring and management.", req.params.studentId);
+      await notifyAdminUsers("registration", "Student registration completed", "A student has successfully completed registration and has been automatically enrolled.", req.params.studentId);
+    }
+    if (updates.status === "rejected" && existing.status !== "rejected") {
+      await createNotificationRecord(req.params.studentId, "schedule", "Application Rejected", "Your registration was not approved. Please contact the registrar for details.", req.params.studentId);
+    }
+    return updates;
+  });
+
+  await createActivityLog(req.userContext?.userId || "system", req.userContext?.role || "system", updates.status === "approved" ? "Approved student registration" : updates.status === "rejected" ? "Rejected student registration" : "Updated student registration", `${req.params.studentId} -> ${updates.status}`, req.userContext?.role || "system");
+  res.json(sanitizeStudentRecord(result));
 });
 
-app.post("/api/students/login", async (req, res) => {
+app.post("/api/students/login", applyRateLimit, (req, res, next) => validateRequiredFields(req, res, next, ["email", "password"]), async (req, res) => {
   const { email, password } = req.body;
-  if (!email || !password) return res.status(400).json({ error: "Email and password are required" });
-  const student = await get(db, "SELECT * FROM students WHERE LOWER(email) = LOWER(?) AND password = ?", [email, password]);
-  if (!student) return res.status(401).json({ error: "Invalid credentials" });
+  const student = await get(db, "SELECT * FROM students WHERE LOWER(email) = LOWER(?)", [email]);
+  if (!student || !verifyPassword(password, student.password)) {
+    await createActivityLog("system", "system", "Failed student login", String(email || "unknown"), "student");
+    return res.status(401).json({ error: "Invalid credentials" });
+  }
+
   const now = new Date().toISOString();
   const isFirstLogin = !student.firstLoginAt;
-  await run(db, "UPDATE students SET firstLoginAt = COALESCE(firstLoginAt, ?), lastLoginAt = ? WHERE id = ?", [now, now, student.id]);
+  const needsPasswordUpgrade = !String(student.password).startsWith("scrypt$");
+  if (needsPasswordUpgrade) {
+    await run(db, "UPDATE students SET password = ?, firstLoginAt = COALESCE(firstLoginAt, ?), lastLoginAt = ? WHERE id = ?", [hashPassword(String(password)), now, now, student.id]);
+  } else {
+    await run(db, "UPDATE students SET firstLoginAt = COALESCE(firstLoginAt, ?), lastLoginAt = ? WHERE id = ?", [now, now, student.id]);
+  }
   if (isFirstLogin) {
     await createNotificationRecord(student.id, "schedule", "Welcome to PIAT", "Welcome! Your student account is ready to use. Please review your profile and registration status.", student.id);
   }
+  await createActivityLog(student.studentId, student.firstName || "Student", "Successful student login", "Student signed in", "student");
   const updatedStudent = await get(db, "SELECT * FROM students WHERE id = ?", [student.id]);
-  res.json(updatedStudent);
+  res.json(sanitizeStudentRecord(updatedStudent));
 });
 
-app.get("/api/grades", async (req, res) => {
+app.get("/api/grades", requireRole("admin", "faculty", "registrar"), async (req, res) => {
   const { subjectId, studentId } = req.query;
   const conditions = [];
   const params = [];
@@ -575,7 +769,7 @@ app.get("/api/grades", async (req, res) => {
   res.json(rows);
 });
 
-app.post("/api/grades", async (req, res) => {
+app.post("/api/grades", requireRole("admin", "faculty"), async (req, res) => {
   const { studentId, subjectId, grade, remarks, period, type, component, status } = req.body;
   if (!studentId || !subjectId || grade === undefined) {
     return res.status(400).json({ error: "studentId, subjectId, and grade are required" });
@@ -613,14 +807,14 @@ app.post("/api/grades", async (req, res) => {
   res.status(201).json(entry);
 });
 
-app.delete("/api/grades", async (req, res) => {
+app.delete("/api/grades", requireRole("admin", "faculty"), async (req, res) => {
   const { studentId, subjectId } = req.query;
   if (!studentId || !subjectId) return res.status(400).json({ error: "studentId and subjectId are required" });
   await run(db, "DELETE FROM grades WHERE studentId = ? AND subjectId = ?", [String(studentId), String(subjectId)]);
   res.status(204).end();
 });
 
-app.get("/api/attendance", async (req, res) => {
+app.get("/api/attendance", requireRole("admin", "faculty", "registrar", "student"), async (req, res) => {
    const subjectId = req.query.subjectId ? String(req.query.subjectId) : null;
    const date = req.query.date ? String(req.query.date) : null;
    const studentId = req.query.studentId ? String(req.query.studentId) : null;
@@ -648,7 +842,7 @@ app.get("/api/attendance", async (req, res) => {
    res.json(rows);
  });
 
-app.post("/api/attendance", async (req, res) => {
+app.post("/api/attendance", requireRole("admin", "faculty"), async (req, res) => {
   const { studentId, subjectId, date, status } = req.body;
   if (!studentId || !subjectId || !date || !status) {
     return res.status(400).json({ error: "studentId, subjectId, date, and status are required" });
@@ -752,26 +946,23 @@ app.delete("/api/notifications", async (req, res) => {
   res.status(204).end();
 });
 
-app.get("/api/activity-logs", async (_req, res) => {
+app.get("/api/activity-logs", requireRole("admin"), async (_req, res) => {
   const rows = await all(db, "SELECT * FROM activity_logs ORDER BY createdAt DESC LIMIT 20");
   res.json(rows);
 });
 
 // Users endpoints
-app.get("/api/users", async (req, res) => {
+app.get("/api/users", requireRole("admin"), async (req, res) => {
   const role = req.query.role ? String(req.query.role) : null;
   const query = role
     ? { sql: "SELECT id, userId, username, firstName, middleName, lastName, email, role, status, program, yearLevel, createdAt, temporaryPassword FROM users WHERE role = ? ORDER BY lastName, firstName", params: [role] }
     : { sql: "SELECT id, userId, username, firstName, middleName, lastName, email, role, status, program, yearLevel, createdAt, temporaryPassword FROM users ORDER BY lastName, firstName", params: [] };
   const rows = await all(db, query.sql, query.params);
-  res.json(rows);
+  res.json(rows.map(sanitizeUserRecord));
 });
 
-app.post("/api/users", async (req, res) => {
+app.post("/api/users", requireRole("admin"), (req, res, next) => validateRequiredFields(req, res, next, ["role", "firstName", "lastName"]), async (req, res) => {
   const { role, studentId, firstName, middleName, lastName, suffix, gender, email, password, program, yearLevel, semester, academicYear } = req.body;
-  if (!role || !firstName || !lastName) {
-    return res.status(400).json({ error: "role, firstName, and lastName are required" });
-  }
 
   const users = await all(db, "SELECT userId FROM users WHERE role = ?", [role]);
   let maxNum = 0;
@@ -784,23 +975,24 @@ app.post("/api/users", async (req, res) => {
   }
   const nextId = `${role.toUpperCase().slice(0, 3)}-${String(maxNum + 1).padStart(5, "0")}`;
   const username = `user${firstName.charAt(0).toLowerCase()}${lastName.toLowerCase()}${Math.floor(1000 + Math.random() * 9000)}`;
+  const initialPassword = password ? String(password) : Math.random().toString(36).slice(2, 12);
 
-  const user = {
+  const user = normalizeUserPayload({
     id: crypto.randomUUID(),
     userId: nextId,
-    username: username,
+    username,
     email: email ? String(email).trim().toLowerCase() : `${username}@bwest.edu.ph`,
-    password: password || Math.random().toString(36).slice(2, 12),
-    firstName: String(firstName).trim(),
-    middleName: middleName ? String(middleName).trim() : null,
-    lastName: String(lastName).trim(),
-    role: String(role),
+    password: hashPassword(initialPassword),
+    firstName,
+    middleName,
+    lastName,
+    role,
     status: "active",
-    program: program ? String(program) : null,
+    program,
     yearLevel: role === "student" ? "1st Year" : yearLevel ? String(yearLevel) : null,
     createdAt: new Date().toISOString(),
-    temporaryPassword: password || Math.random().toString(36).slice(2, 12),
-  };
+    temporaryPassword: initialPassword,
+  });
 
   await run(
     db,
@@ -815,7 +1007,7 @@ app.post("/api/users", async (req, res) => {
   if (role === "student") {
     const generatedStudentId = `${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`;
     const normalizedStudentId = studentId ? String(studentId).trim() : generatedStudentId;
-    const student = {
+    const student = normalizeStudentPayload({
       id: crypto.randomUUID(),
       studentId: normalizedStudentId,
       firstName: user.firstName,
@@ -825,49 +1017,17 @@ app.post("/api/users", async (req, res) => {
       email: user.email,
       password: user.password,
       gender: gender ? String(gender) : null,
-      dob: null,
-      age: null,
-      civilStatus: null,
-      nationality: null,
-      religion: null,
       educationLevel: "College",
       program: user.program || "",
       yearLevel: "1st Year",
-      gradeLevel: "",
-      strand: "",
       studentType: "Incoming Freshman",
       academicYear: academicYear ? String(academicYear) : `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`,
       semester: "1st Semester",
-      section: null,
-      previousSchool: null,
-      lastGrade: null,
-      contactNumber: null,
-      address: null,
-      city: null,
-      province: null,
-      zip: null,
-      fatherName: null,
-      fatherOccupation: null,
-      fatherContact: null,
-      motherName: null,
-      motherOccupation: null,
-      motherContact: null,
-      guardianName: null,
-      guardianOccupation: null,
-      guardianContact: null,
-      guardianRelation: null,
-      parentName: null,
-      parentContact: null,
-      parentAddress: null,
-      emergencyName: null,
-      emergencyContact: null,
-      emergencyAddress: null,
-      emergencyRelation: null,
       status: "not_started",
       submittedAt: new Date().toISOString(),
       reviewedAt: new Date().toISOString(),
       reviewNote: "Created by admin",
-    };
+    });
     await run(
       db,
       `INSERT INTO students (id, studentId, firstName, lastName, middleName, suffix, email, password, gender, educationLevel, program, yearLevel, studentType, academicYear, semester, status, submittedAt, reviewedAt, reviewNote, firstLoginAt, lastLoginAt)
@@ -883,20 +1043,20 @@ app.post("/api/users", async (req, res) => {
     );
   }
 
-  res.status(201).json(user);
+  res.status(201).json(sanitizeUserRecord(user));
 });
 
-app.patch("/api/users/:id/status", async (req, res) => {
+app.patch("/api/users/:id/status", requireRole("admin"), async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
   const existing = await get(db, "SELECT * FROM users WHERE id = ?", [id]);
   if (!existing) return res.status(404).json({ error: "User not found" });
   await run(db, "UPDATE users SET status = ? WHERE id = ?", [status || "inactive", id]);
   const updated = await get(db, "SELECT id, userId, username, firstName, middleName, lastName, email, role, status, program, yearLevel, createdAt, temporaryPassword FROM users WHERE id = ?", [id]);
-  res.json(updated);
+  res.json(sanitizeUserRecord(updated));
 });
 
-app.put("/api/users/:id", async (req, res) => {
+app.put("/api/users/:id", requireRole("admin"), async (req, res) => {
   const { id } = req.params;
   const existing = await get(db, "SELECT * FROM users WHERE id = ?", [id]);
   if (!existing) return res.status(404).json({ error: "User not found" });
@@ -915,85 +1075,234 @@ app.put("/api/users/:id", async (req, res) => {
     [updates.firstName, updates.lastName, updates.middleName, updates.email, updates.program, updates.yearLevel, id]
   );
   const updated = await get(db, "SELECT id, userId, username, firstName, middleName, lastName, email, role, status, program, yearLevel, createdAt, temporaryPassword FROM users WHERE id = ?", [id]);
-  res.json(updated);
+  res.json(sanitizeUserRecord(updated));
 });
 
-app.patch("/api/users/:id/password", async (req, res) => {
+app.patch("/api/users/:id/password", requireSelfOrRole("id", "admin"), (req, res, next) => validateRequiredFields(req, res, next, ["password"]), async (req, res) => {
   const { id } = req.params;
   const { password } = req.body;
   if (!password) return res.status(400).json({ error: "Password is required" });
   const existing = await get(db, "SELECT * FROM users WHERE id = ?", [id]);
   if (!existing) return res.status(404).json({ error: "User not found" });
   const newPassword = String(password);
-  await run(db, "UPDATE users SET password = ?, temporaryPassword = ? WHERE id = ?", [newPassword, newPassword, id]);
+  await run(db, "UPDATE users SET password = ?, temporaryPassword = ? WHERE id = ?", [hashPassword(newPassword), newPassword, id]);
   const updated = await get(db, "SELECT id, userId, username, firstName, middleName, lastName, email, role, status, program, yearLevel, createdAt, temporaryPassword FROM users WHERE id = ?", [id]);
-  res.json(updated);
+  res.json(sanitizeUserRecord(updated));
 });
 
-app.post("/api/users/login", async (req, res) => {
+app.post("/api/users/login", applyRateLimit, (req, res, next) => validateRequiredFields(req, res, next, ["email", "password"]), async (req, res) => {
   const { email, password } = req.body;
-  if (!email || !password) return res.status(400).json({ error: "Email and password are required" });
-  const user = await get(db, "SELECT id, userId, username, firstName, middleName, lastName, email, role, status, program, yearLevel, createdAt, temporaryPassword, firstLoginAt, lastLoginAt FROM users WHERE LOWER(email) = LOWER(?) AND password = ?", [email, password]);
-  if (!user) return res.status(401).json({ error: "Invalid credentials" });
+  const user = await get(db, "SELECT id, userId, username, firstName, middleName, lastName, email, role, status, program, yearLevel, createdAt, temporaryPassword, password, firstLoginAt, lastLoginAt FROM users WHERE LOWER(email) = LOWER(?)", [email]);
+  if (!user || !verifyPassword(password, user.password)) {
+    await createActivityLog("system", "system", "Failed staff login", String(email || "unknown"), "system");
+    return res.status(401).json({ error: "Invalid credentials" });
+  }
   const now = new Date().toISOString();
   const isFirstLogin = !user.firstLoginAt;
-  await run(db, "UPDATE users SET firstLoginAt = COALESCE(firstLoginAt, ?), lastLoginAt = ? WHERE id = ?", [now, now, user.id]);
+  const needsPasswordUpgrade = !String(user.password).startsWith("scrypt$");
+  if (needsPasswordUpgrade) {
+    await run(db, "UPDATE users SET password = ?, firstLoginAt = COALESCE(firstLoginAt, ?), lastLoginAt = ? WHERE id = ?", [hashPassword(String(password)), now, now, user.id]);
+  } else {
+    await run(db, "UPDATE users SET firstLoginAt = COALESCE(firstLoginAt, ?), lastLoginAt = ? WHERE id = ?", [now, now, user.id]);
+  }
   if (isFirstLogin) {
     await createNotificationRecord(user.id, "schedule", "Welcome to PIAT", "Welcome! Your account is ready to use. Please sign in with your temporary password and update it when prompted.", user.id);
   }
-  const updatedUser = await get(db, "SELECT id, userId, username, firstName, middleName, lastName, email, role, status, program, yearLevel, createdAt, temporaryPassword, firstLoginAt, lastLoginAt FROM users WHERE id = ?", [user.id]);
-  res.json(updatedUser);
+  await createActivityLog(user.id, `${user.firstName} ${user.lastName}`.trim(), "Successful staff login", "User signed in", user.role);
+  const updatedUser = await get(db, "SELECT id, userId, username, firstName, middleName, lastName, email, role, status, program, yearLevel, semester, academicYear, createdAt, temporaryPassword, firstLoginAt, lastLoginAt FROM users WHERE id = ?", [user.id]);
+  const token = generateJwtToken(updatedUser);
+  res.json({ ...sanitizeUserRecord(updatedUser), token });
 });
 
-// Enrollments endpoints
-app.get("/api/enrollments", async (req, res) => {
+app.get("/api/users/profile", requireRole("admin", "faculty", "registrar", "student"), async (req, res) => {
+  const user = await get(db, "SELECT id, userId, username, firstName, middleName, lastName, email, role, status, program, yearLevel, semester, academicYear, createdAt, temporaryPassword, firstLoginAt, lastLoginAt FROM users WHERE id = ?", [req.userContext.userId]);
+  if (!user) return res.status(404).json({ error: "User not found" });
+  res.json(sanitizeUserRecord(user));
+});
+
+app.get("/api/faculty/subjects", requireRole("admin", "faculty"), async (req, res) => {
+  const rows = await all(db, "SELECT * FROM subjects WHERE facultyId = ? ORDER BY code", [req.userContext.userId]);
+  res.json(rows);
+});
+
+app.get("/api/faculty/subjects/:subjectId/students", requireRole("admin", "faculty"), async (req, res) => {
+  const subject = await get(db, "SELECT * FROM subjects WHERE id = ?", [req.params.subjectId]);
+  if (!subject) return res.status(404).json({ error: "Subject not found" });
+  if (String(subject.facultyId) !== req.userContext.userId) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  const rows = await all(
+    db,
+    `SELECT st.*
+     FROM enrollments e
+     JOIN students st ON st.studentId = e.studentId
+     WHERE e.subjectId = ?
+     ORDER BY st.lastName, st.firstName`,
+    [req.params.subjectId],
+  );
+  res.json(rows.map(sanitizeStudentRecord));
+});
+
+app.post("/api/attendance/bulk", requireRole("admin", "faculty"), async (req, res) => {
+  const records = Array.isArray(req.body?.records) ? req.body.records : null;
+  if (!records || records.length === 0) {
+    return res.status(400).json({ error: "records must be a non-empty array" });
+  }
+
+  const results = [];
+  for (const record of records) {
+    const localId = record.localId || null;
+    const { studentId, subjectId, date, status } = record;
+    if (!studentId || !subjectId || !date || !status) {
+      results.push({ localId, status: "failed", error: "Missing required fields" });
+      continue;
+    }
+
+    const subject = await get(db, "SELECT * FROM subjects WHERE id = ?", [subjectId]);
+    if (!subject) {
+      results.push({ localId, status: "failed", error: "Subject not found" });
+      continue;
+    }
+    if (req.userContext.role === "faculty" && String(subject.facultyId) !== req.userContext.userId) {
+      results.push({ localId, status: "failed", error: "Forbidden" });
+      continue;
+    }
+
+    const existing = await get(db, "SELECT * FROM attendance WHERE studentId = ? AND subjectId = ? AND date = ?", [studentId, subjectId, date]);
+    if (existing) {
+      await run(db, "UPDATE attendance SET status = ?, updatedAt = ? WHERE id = ?", [String(status), Date.now(), existing.id]);
+      results.push({ localId, id: existing.id, status: "updated" });
+      continue;
+    }
+
+    const entry = {
+      id: crypto.randomUUID(),
+      studentId: String(studentId),
+      subjectId: String(subjectId),
+      date: String(date),
+      status: String(status),
+      updatedAt: Date.now(),
+    };
+    await run(db, "INSERT INTO attendance (id, studentId, subjectId, date, status, updatedAt) VALUES (?, ?, ?, ?, ?, ?)", [entry.id, entry.studentId, entry.subjectId, entry.date, entry.status, entry.updatedAt]);
+    results.push({ localId, id: entry.id, status: "created" });
+  }
+
+  res.json(results);
+});
+
+app.post("/api/attendance", requireRole("admin", "faculty"), async (req, res) => {
+  const { studentId, subjectId, date, status } = req.body;
+  if (!studentId || !subjectId || !date || !status) {
+    return res.status(400).json({ error: "studentId, subjectId, date, and status are required" });
+  }
+  const subject = await get(db, "SELECT * FROM subjects WHERE id = ?", [subjectId]);
+  if (!subject) {
+    return res.status(404).json({ error: "Subject not found" });
+  }
+  if (req.userContext.role === "faculty" && String(subject.facultyId) !== req.userContext.userId) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  const existing = await get(
+    db,
+    "SELECT * FROM attendance WHERE studentId = ? AND subjectId = ? AND date = ?",
+    [studentId, subjectId, date],
+  );
+  if (existing) {
+    await run(
+      db,
+      "UPDATE attendance SET status = ?, updatedAt = ? WHERE id = ?",
+      [String(status), Date.now(), existing.id],
+    );
+    const updated = await get(db, "SELECT * FROM attendance WHERE id = ?", [existing.id]);
+    return res.json(updated);
+  }
+
+  const record = {
+    id: crypto.randomUUID(),
+    studentId: String(studentId),
+    subjectId: String(subjectId),
+    date: String(date),
+    status: String(status),
+    updatedAt: Date.now(),
+  };
+  await run(
+    db,
+    "INSERT INTO attendance (id, studentId, subjectId, date, status, updatedAt) VALUES (?, ?, ?, ?, ?, ?)",
+    [record.id, record.studentId, record.subjectId, record.date, record.status, record.updatedAt],
+  );
+  res.status(201).json(record);
+});
+
+// Notifications endpoints
+app.get("/api/enrollments", requireRole("admin", "registrar", "student"), async (req, res) => {
   const studentId = req.query.studentId ? String(req.query.studentId) : null;
-  const query = studentId
-    ? { sql: "SELECT * FROM enrollments WHERE studentId = ? AND status = 'enrolled' ORDER BY enrolledAt DESC", params: [studentId] }
-    : { sql: "SELECT * FROM enrollments WHERE status = 'enrolled' ORDER BY enrolledAt DESC", params: [] };
+  const academicYear = req.query.academicYear ? String(req.query.academicYear) : null;
+  const semester = req.query.semester ? String(req.query.semester) : null;
+  const conditions = ["status = 'enrolled'"];
+  const params = [];
+
+  if (studentId) {
+    conditions.push("studentId = ?");
+    params.push(studentId);
+  }
+  if (academicYear) {
+    conditions.push("academicYear = ?");
+    params.push(academicYear);
+  }
+  if (semester) {
+    conditions.push("semester = ?");
+    params.push(semester);
+  }
+
+  const query = {
+    sql: `SELECT * FROM enrollments WHERE ${conditions.join(" AND ")} ORDER BY enrolledAt DESC`,
+    params,
+  };
   const rows = await all(db, query.sql, query.params);
   res.json(rows);
 });
 
-app.post("/api/enrollments", async (req, res) => {
+app.post("/api/enrollments", requireRole("admin", "registrar"), (req, res, next) => validateRequiredFields(req, res, next, ["studentId"]), (req, res, next) => validateArrayField(req, res, next, "subjectIds"), async (req, res) => {
   const { studentId, subjectIds, academicYear, semester } = req.body;
-  if (!studentId || !subjectIds || !Array.isArray(subjectIds)) {
-    return res.status(400).json({ error: "studentId and subjectIds array are required" });
-  }
 
-  const enrollments = [];
-  if (!subjectIds.length) {
-    const student = await get(db, "SELECT * FROM students WHERE studentId = ?", [studentId]);
-    if (student) {
-      const synced = await syncStudentEnrollment(student);
-      res.status(201).json(synced);
-      return;
+  const enrollments = await withTransaction(db, async () => {
+    const created = [];
+    if (!subjectIds.length) {
+      const student = await get(db, "SELECT * FROM students WHERE studentId = ?", [studentId]);
+      if (student) {
+        return await syncStudentEnrollment(student);
+      }
+      return [];
     }
-  }
 
-  for (const subjectId of subjectIds) {
-    const existing = await get(db, "SELECT * FROM enrollments WHERE studentId = ? AND subjectId = ? AND status = 'enrolled'", [studentId, subjectId]);
-    if (!existing) {
-      const enrollment = {
-        id: crypto.randomUUID(),
-        studentId: String(studentId),
-        subjectId: String(subjectId),
-        academicYear: academicYear ? String(academicYear) : null,
-        semester: semester ? String(semester) : null,
-        enrolledAt: new Date().toISOString(),
-        status: "enrolled",
-      };
-      await run(
-        db,
-        `INSERT INTO enrollments (id, studentId, subjectId, academicYear, semester, enrolledAt, status) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [enrollment.id, enrollment.studentId, enrollment.subjectId, enrollment.academicYear, enrollment.semester, enrollment.enrolledAt, enrollment.status],
-      );
-      enrollments.push(enrollment);
+    for (const subjectId of subjectIds) {
+      const existing = await get(db, "SELECT * FROM enrollments WHERE studentId = ? AND subjectId = ? AND status = 'enrolled'", [studentId, subjectId]);
+      if (!existing) {
+        const enrollment = {
+          id: crypto.randomUUID(),
+          studentId: String(studentId),
+          subjectId: String(subjectId),
+          academicYear: academicYear ? String(academicYear) : null,
+          semester: semester ? String(semester) : null,
+          enrolledAt: new Date().toISOString(),
+          status: "enrolled",
+        };
+        await run(
+          db,
+          `INSERT INTO enrollments (id, studentId, subjectId, academicYear, semester, enrolledAt, status) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [enrollment.id, enrollment.studentId, enrollment.subjectId, enrollment.academicYear, enrollment.semester, enrollment.enrolledAt, enrollment.status],
+        );
+        created.push(enrollment);
+      }
     }
-  }
+
+    return created;
+  });
+
   if (enrollments.length > 0) {
     await createNotificationRecord(studentId, "schedule", "Enrollment Completed", `You have been enrolled in ${enrollments.length} subject(s).`, studentId);
   }
+  await createActivityLog(req.userContext?.userId || "system", req.userContext?.role || "system", "Created enrollments", `${studentId} (${enrollments.length} item(s))`, req.userContext?.role || "system");
   res.status(201).json(enrollments);
 });
 
@@ -1153,27 +1462,37 @@ app.post("/api/students/:studentId/reenroll", async (req, res) => {
     }
   }
 
-  await run(db, "UPDATE students SET yearLevel = ?, semester = ?, academicYear = ? WHERE studentId = ?", [newYear, newSemester, nextAcademicYear || existing.academicYear, studentId]);
+  const programName = existing.program;
+  const programs = await all(db, "SELECT id, name FROM programs");
+  const resolvedProgramId = resolveProgramIdForStudent(programName, programs);
 
-  const curriculum = await all(db, "SELECT * FROM curriculum WHERE programId = (SELECT program FROM students WHERE studentId = ?) AND yearLevel = ? AND semester = ?", [studentId, newYear, newSemester]);
-  const createdEnrollments = [];
-  for (const item of curriculum) {
-    const existingSubject = await get(db, "SELECT id FROM subjects WHERE program = (SELECT program FROM students WHERE studentId = ?) AND yearLevel = ? AND semester = ? AND code = ?", [studentId, newYear, newSemester, item.subjectCode]);
-    let subjectId = existingSubject?.id;
-    if (!existingSubject) {
-      subjectId = crypto.randomUUID();
-      await run(db, "INSERT INTO subjects (id, code, title, units, schedule, room, instructor, program, yearLevel, semester, facultyId, academicYear, addedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
-        [subjectId, item.subjectCode, item.subjectTitle, item.units, "TBA", "TBA", "Unassigned", existing.program, newYear, newSemester, null, nextAcademicYear || existing.academicYear, Date.now()]);
+  const result = await withTransaction(db, async () => {
+    await run(db, "UPDATE students SET yearLevel = ?, semester = ?, academicYear = ? WHERE studentId = ?", [newYear, newSemester, nextAcademicYear || existing.academicYear, studentId]);
+
+    const curriculum = resolvedProgramId
+      ? await all(db, "SELECT * FROM curriculum WHERE programId = ? AND yearLevel = ? AND semester = ?", [resolvedProgramId, newYear, newSemester])
+      : [];
+    const createdEnrollments = [];
+    for (const item of curriculum) {
+      const existingSubject = await get(db, "SELECT id FROM subjects WHERE program = ? AND yearLevel = ? AND semester = ? AND code = ?", [programName, newYear, newSemester, item.subjectCode]);
+      let subjectId = existingSubject?.id;
+      if (!existingSubject) {
+        subjectId = crypto.randomUUID();
+        await run(db, "INSERT INTO subjects (id, code, title, units, schedule, room, instructor, program, yearLevel, semester, facultyId, academicYear, addedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
+          [subjectId, item.subjectCode, item.subjectTitle, item.units, "TBA", "TBA", "Unassigned", programName, newYear, newSemester, null, nextAcademicYear || existing.academicYear, Date.now()]);
+      }
+      const enrollmentId = crypto.randomUUID();
+      await run(db, "INSERT INTO enrollments (id, studentId, subjectId, academicYear, semester, enrolledAt, status) VALUES (?, ?, ?, ?, ?, ?, ?)", 
+        [enrollmentId, studentId, subjectId, nextAcademicYear || existing.academicYear, newSemester, new Date().toISOString(), "enrolled"]);
+      createdEnrollments.push(enrollmentId);
     }
-    const enrollmentId = crypto.randomUUID();
-    await run(db, "INSERT INTO enrollments (id, studentId, subjectId, academicYear, semester, enrolledAt, status) VALUES (?, ?, ?, ?, ?, ?, ?)", 
-      [enrollmentId, studentId, subjectId, nextAcademicYear || existing.academicYear, newSemester, new Date().toISOString(), "enrolled"]);
-    createdEnrollments.push(enrollmentId);
-  }
+
+    await createNotificationRecord(studentId, "schedule", "Re-enrollment Opened", "Your re-enrollment has been processed for the next term.", studentId);
+    return createdEnrollments.length;
+  });
 
   const updated = await get(db, "SELECT * FROM students WHERE studentId = ?", [studentId]);
-  await createNotificationRecord(studentId, "schedule", "Re-enrollment Opened", "Your re-enrollment has been processed for the next term.", studentId);
-  res.json({ student: updated, enrollmentsCreated: createdEnrollments.length });
+  res.json({ student: updated, enrollmentsCreated: result });
 });
 
 app.post("/api/students/:studentId/finalize-records", async (req, res) => {
@@ -1236,11 +1555,8 @@ app.get("/api/announcements", async (_req, res) => {
   res.json(rows);
 });
 
-app.post("/api/announcements", async (req, res) => {
+app.post("/api/announcements", (req, res, next) => validateRequiredFields(req, res, next, ["title", "body"]), async (req, res) => {
   const { title, body, category, audience, subjectId, authorName, authorRole } = req.body;
-  if (!title || !body) {
-    return res.status(400).json({ error: "title and body are required" });
-  }
   const id = `a-${Date.now()}`;
   const announcement = {
     id,
@@ -1278,6 +1594,12 @@ app.patch("/api/announcements/:id/pin", async (req, res) => {
   await run(db, "UPDATE announcements SET pinned = ? WHERE id = ?", [pinned, id]);
   const updated = await get(db, "SELECT * FROM announcements WHERE id = ?", [id]);
   res.json(updated);
+});
+
+app.use((err, req, res, next) => {
+  console.error(err);
+  if (res.headersSent) return next(err);
+  return sendError(res, 500, "Internal server error");
 });
 
 function startServer(port) {

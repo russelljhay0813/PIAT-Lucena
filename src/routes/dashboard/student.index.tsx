@@ -7,6 +7,7 @@ import { useEffect, useState, useMemo, useCallback } from "react";
 import {
   fetchAnnouncements,
   fetchAttendanceRecords,
+  fetchCurriculum,
   fetchEnrollments,
   fetchGrades,
   fetchNotifications,
@@ -15,6 +16,7 @@ import {
   fetchEligibleReenrollments,
   reenrollStudent,
   type Announcement,
+  type CurriculumItem,
   type GradeEntry,
   type NotificationItem,
   type StudentEnrollment,
@@ -40,6 +42,7 @@ function StudentDashboard() {
   const [eligibleForReenrollment, setEligibleForReenrollment] = useState(false);
   const [isReenrolling, setIsReenrolling] = useState(false);
   const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(null);
+  const [hasAttemptedProfileLoad, setHasAttemptedProfileLoad] = useState(false);
 
   const refreshDashboard = useCallback(async () => {
     if (!user?.studentId) {
@@ -51,29 +54,59 @@ function StudentDashboard() {
       setNotifications([]);
       setAttendanceRate(null);
       setLoading(false);
+      setHasAttemptedProfileLoad(true);
       return;
     }
 
     try {
       setLoading(true);
-      const [profile, enrollmentData, subjectData, gradeData, announcementData, notificationData, eligibleData] = await Promise.all([
-        fetchStudentById(user.studentId),
-        fetchEnrollments(user.studentId),
+      const profile = await fetchStudentById(user.studentId);
+      const currentAcademicYear = profile?.academicYear || user?.academicYear;
+      const currentYearLevel = profile?.yearLevel || user?.yearLevel;
+      const currentSemester = profile?.semester || user?.semester;
+      const currentProgram = profile?.program || user?.program;
+      const [enrollmentData, subjectData, curriculumData, gradeData, announcementData, notificationData] = await Promise.all([
+        fetchEnrollments(user.studentId, currentAcademicYear, currentSemester),
         fetchSubjects(),
+        currentProgram ? fetchCurriculum(undefined, currentProgram) : Promise.resolve([]),
         fetchGrades(undefined, user.studentId),
         fetchAnnouncements(),
         fetchNotifications(user.studentId),
-        fetchEligibleReenrollments(),
       ]);
 
       setStudentProfile(profile);
-      setEnrollments(enrollmentData);
-      const enrolledSubjectIds = new Set(enrollmentData.map((entry) => entry.subjectId));
+      const filteredEnrollments = enrollmentData.filter((entry) => {
+        if (currentAcademicYear && entry.academicYear !== currentAcademicYear) return false;
+        if (currentSemester && entry.semester !== currentSemester) return false;
+        return true;
+      });
+
+      const currentCurriculumCodes = new Set(
+        (curriculumData || [])
+          .filter((item) => item.yearLevel === currentYearLevel && (!currentSemester || item.semester === currentSemester))
+          .map((item) => item.subjectCode),
+      );
+
+      const curriculumFilteredEnrollments = currentCurriculumCodes.size > 0
+        ? filteredEnrollments.filter((entry) => {
+            const subject = subjectData.find((subject) => subject.id === entry.subjectId);
+            return subject ? currentCurriculumCodes.has(subject.code) : false;
+          })
+        : filteredEnrollments;
+
+      setEnrollments(curriculumFilteredEnrollments);
+      const enrolledSubjectIds = new Set(curriculumFilteredEnrollments.map((entry) => entry.subjectId));
       setSubjects(subjectData.filter((subject) => enrolledSubjectIds.has(subject.id)));
       setGrades(gradeData);
       setAnnouncements((announcementData || []).filter((item) => item.audience === "all" || item.audience === "student"));
       setNotifications(notificationData || []);
-      setEligibleForReenrollment(eligibleData.some((item) => item.studentId === user.studentId));
+
+      try {
+        const eligibleData = await fetchEligibleReenrollments();
+        setEligibleForReenrollment(eligibleData.some((item) => item.studentId === user.studentId));
+      } catch {
+        setEligibleForReenrollment(false);
+      }
     } catch {
       setStudentProfile(null);
       setEnrollments([]);
@@ -84,6 +117,7 @@ function StudentDashboard() {
       setEligibleForReenrollment(false);
     } finally {
       setLoading(false);
+      setHasAttemptedProfileLoad(true);
     }
   }, [user?.studentId]);
 
@@ -98,6 +132,12 @@ function StudentDashboard() {
       refreshEvents.forEach((eventName) => window.removeEventListener(eventName, onChange));
     };
   }, [refreshDashboard]);
+
+  useEffect(() => {
+    if (!loading && user?.role === "student" && studentProfile?.status === "not_started") {
+      navigate({ to: "/register" });
+    }
+  }, [loading, studentProfile?.status, navigate, user?.role]);
 
   useEffect(() => {
     const loadAttendance = async () => {
@@ -194,9 +234,18 @@ function StudentDashboard() {
       );
     }
 
-    if (!studentProfile) {
-      navigate({ to: "/register" });
-      return null;
+    if (!studentProfile && hasAttemptedProfileLoad) {
+      return (
+        <div className="flex min-h-screen items-center justify-center">
+          <div className="max-w-md rounded-xl border bg-card p-8 text-center shadow-sm">
+            <h1 className="font-heading text-xl font-bold text-foreground">Unable to load your profile</h1>
+            <p className="mt-2 text-sm text-muted-foreground">We could not verify your registration status. Please log out and sign in again.</p>
+            <button onClick={() => navigate({ to: "/" })} className="mt-4 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+              Back to Login
+            </button>
+          </div>
+        </div>
+      );
     }
 
     if (studentProfile.status !== "approved") {
@@ -223,8 +272,17 @@ function StudentDashboard() {
         );
       }
 
-      navigate({ to: "/register" });
-      return null;
+      return (
+        <div className="flex min-h-screen items-center justify-center">
+          <div className="max-w-md rounded-xl border bg-card p-8 text-center shadow-sm">
+            <h1 className="font-heading text-xl font-bold text-foreground">Unable to determine registration status</h1>
+            <p className="mt-2 text-sm text-muted-foreground">Your account is in an unexpected state. Please log out and sign in again or contact the registrar.</p>
+            <button onClick={() => navigate({ to: "/" })} className="mt-4 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+              Back to Login
+            </button>
+          </div>
+        </div>
+      );
     }
   }
 
@@ -338,7 +396,7 @@ function StudentDashboard() {
                   <div className="mt-2 grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
                     <p><span className="font-medium text-foreground">Schedule:</span> {subject.schedule || "TBA"}</p>
                     <p><span className="font-medium text-foreground">Room:</span> {subject.room || "TBA"}</p>
-                    <p><span className="font-medium text-foreground">Assigned Faculty:</span> {subject.instructor || "TBA"}</p>
+                    <p><span className="font-medium text-foreground">Assigned Faculty:</span> {subject.instructor ? subject.instructor : "Faculty assignment pending."}</p>
                     <p><span className="font-medium text-foreground">Semester:</span> {subject.semester || displaySemester}</p>
                   </div>
                 </div>
@@ -374,7 +432,7 @@ function StudentDashboard() {
                       </td>
                       <td className="py-3 pr-4 text-muted-foreground">{subject.schedule || "TBA"}</td>
                       <td className="py-3 pr-4 text-muted-foreground">{subject.room || "TBA"}</td>
-                      <td className="py-3 text-muted-foreground">{subject.instructor || "TBA"}</td>
+                      <td className="py-3 text-muted-foreground">{subject.instructor ? subject.instructor : "Faculty assignment pending."}</td>
                     </tr>
                   ))}
                 </tbody>

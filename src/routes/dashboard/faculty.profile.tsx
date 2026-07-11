@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import { fetchUsers, type UserAccount } from "@/lib/api";
 import { fetchSubjects, type Subject } from "@/lib/api";
 import { useEffect, useState, useCallback } from "react";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/dashboard/faculty/profile")({
   component: FacultyProfile,
@@ -16,6 +17,8 @@ function FacultyProfile() {
   const [assignedSubjects, setAssignedSubjects] = useState<Subject[]>([]);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [isSavingPassword, setIsSavingPassword] = useState(false);
 
   const loadFacultyInfo = useCallback(async () => {
     if (!user?.id) return;
@@ -46,14 +49,24 @@ function FacultyProfile() {
   }, [user?.id]);
 
   const handlePasswordChange = async () => {
+    if (!newPassword.trim() || !confirmPassword.trim()) {
+      setPasswordError("Please fill in both password fields.");
+      return;
+    }
+
     if (newPassword !== confirmPassword) {
-      alert("Passwords do not match");
+      setPasswordError("The passwords you entered do not match.");
       return;
     }
+
     if (newPassword.length < 6) {
-      alert("Password must be at least 6 characters");
+      setPasswordError("Use at least 6 characters for your new password.");
       return;
     }
+
+    setPasswordError("");
+    setIsSavingPassword(true);
+
     try {
       const response = await fetch(`/api/users/${user?.id}/password`, {
         method: "PATCH",
@@ -61,11 +74,13 @@ function FacultyProfile() {
         body: JSON.stringify({ password: newPassword }),
       });
       if (!response.ok) throw new Error("Failed to update password");
-      alert("Password changed successfully");
+      toast.success("Your password was updated successfully.");
       setNewPassword("");
       setConfirmPassword("");
     } catch {
-      alert("Failed to change password");
+      toast.error("We couldn’t update your password right now. Please try again.");
+    } finally {
+      setIsSavingPassword(false);
     }
   };
 
@@ -108,34 +123,47 @@ function FacultyProfile() {
         </h2>
         <div className="grid gap-4 sm:grid-cols-2 max-w-md">
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">New Password</label>
+            <label className="text-xs font-medium text-muted-foreground" htmlFor="new-password">New Password</label>
             <input
+              id="new-password"
               type="password"
               value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
+              onChange={(e) => {
+                setNewPassword(e.target.value);
+                if (passwordError) setPasswordError("");
+              }}
               placeholder="Enter new password"
               className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Confirm Password</label>
+            <label className="text-xs font-medium text-muted-foreground" htmlFor="confirm-password">Confirm Password</label>
             <input
+              id="confirm-password"
               type="password"
               value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
+              onChange={(e) => {
+                setConfirmPassword(e.target.value);
+                if (passwordError) setPasswordError("");
+              }}
               placeholder="Confirm password"
               className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
             />
           </div>
         </div>
+        {passwordError && (
+          <p role="alert" className="mt-3 text-sm text-destructive">
+            {passwordError}
+          </p>
+        )}
         <div className="mt-4">
           <button
             onClick={handlePasswordChange}
-            disabled={!newPassword || newPassword !== confirmPassword}
+            disabled={isSavingPassword || !newPassword || !confirmPassword}
             className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
           >
             <Lock className="h-3.5 w-3.5" />
-            Update Password
+            {isSavingPassword ? "Updating..." : "Update Password"}
           </button>
         </div>
       </div>

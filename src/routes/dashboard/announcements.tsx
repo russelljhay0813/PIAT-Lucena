@@ -23,6 +23,7 @@ import {
   type AnnouncementAudience,
 } from "@/lib/announcements-store";
 import { fetchAnnouncements, createAnnouncement, deleteAnnouncementApi } from "@/lib/api";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/dashboard/announcements")({
   component: AnnouncementsPage,
@@ -76,6 +77,7 @@ function AnnouncementsPage() {
   const [category, setCategory] = useState<AnnouncementCategory>("general");
   const [audience, setAudience] = useState<AnnouncementAudience>("all");
   const [pinned, setPinned] = useState(false);
+  const [formError, setFormError] = useState("");
 
   const loadAnnouncements = async () => {
     try {
@@ -108,7 +110,18 @@ function AnnouncementsPage() {
   }, [items, user, search, filter]);
 
   const handleSubmit = async () => {
-    if (!title.trim() || !body.trim() || !user) return;
+    if (!user) {
+      toast.error("You need to be signed in to publish an announcement.");
+      return;
+    }
+
+    if (!title.trim() || !body.trim()) {
+      setFormError("Please add both a title and a message before publishing.");
+      return;
+    }
+
+    setFormError("");
+
     try {
       await createAnnouncement({
         title: title.trim(),
@@ -123,25 +136,25 @@ function AnnouncementsPage() {
       setAudience("all");
       setPinned(false);
       setShowForm(false);
+      toast.success("Your announcement was published.");
       loadAnnouncements();
     } catch (err: any) {
-      alert(err?.message || "Failed to post announcement");
+      toast.error(err?.message || "We couldn’t publish that announcement right now.");
     }
   };
 
   const handleRemove = async (id: string) => {
-    if (!confirm("Delete this announcement?")) return;
     try {
       await deleteAnnouncementApi(id);
+      toast.success("Announcement removed.");
       loadAnnouncements();
     } catch (err: any) {
-      alert(err?.message || "Failed to delete announcement");
+      toast.error(err?.message || "We couldn’t remove that announcement right now.");
     }
   };
 
-  const handlePin = async (id: string, currentPinned: boolean) => {
-    // Backend doesn't support pin updates yet; just show alert for now
-    alert("Pin feature coming soon");
+  const handlePin = async (_id: string, _currentPinned: boolean) => {
+    toast.info("Pinning is still being prepared for this release.");
   };
 
   return (
@@ -179,25 +192,33 @@ function AnnouncementsPage() {
 
               <div className="space-y-3">
                 <div>
-                  <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                  <label className="mb-1 block text-[11px] font-medium text-muted-foreground" htmlFor="announcement-title">
                     Title
                   </label>
                   <input
+                    id="announcement-title"
                     type="text"
                     value={title}
-                    onChange={(e) => setTitle(e.target.value)}
+                    onChange={(e) => {
+                      setTitle(e.target.value);
+                      if (formError) setFormError("");
+                    }}
                     placeholder="e.g., Midterm Schedule Released"
                     className="w-full rounded-lg border bg-background px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
                   />
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                  <label className="mb-1 block text-[11px] font-medium text-muted-foreground" htmlFor="announcement-body">
                     Message
                   </label>
                   <textarea
+                    id="announcement-body"
                     value={body}
-                    onChange={(e) => setBody(e.target.value)}
+                    onChange={(e) => {
+                      setBody(e.target.value);
+                      if (formError) setFormError("");
+                    }}
                     rows={4}
                     placeholder="Write the announcement details..."
                     className="w-full resize-y rounded-lg border bg-background px-3 py-2 text-sm focus:border-accent focus:outline-none"
@@ -210,6 +231,7 @@ function AnnouncementsPage() {
                       Category
                     </label>
                     <select
+                      aria-label="Announcement category"
                       value={category}
                       onChange={(e) => setCategory(e.target.value as AnnouncementCategory)}
                       className="w-full rounded-lg border bg-background px-3 py-2 text-sm focus:border-accent focus:outline-none"
@@ -226,6 +248,7 @@ function AnnouncementsPage() {
                       Audience
                     </label>
                     <select
+                      aria-label="Announcement audience"
                       value={audience}
                       onChange={(e) => setAudience(e.target.value as AnnouncementAudience)}
                       className="w-full rounded-lg border bg-background px-3 py-2 text-sm focus:border-accent focus:outline-none"
@@ -236,6 +259,12 @@ function AnnouncementsPage() {
                     </select>
                   </div>
                 </div>
+
+                {formError && (
+                  <p role="alert" className="text-sm text-destructive">
+                    {formError}
+                  </p>
+                )}
 
                 <label className="flex items-center gap-2 text-xs text-foreground">
                   <input

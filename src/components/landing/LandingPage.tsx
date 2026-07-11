@@ -59,7 +59,7 @@ const admissionSteps = [
   "Administrator creates the student account.",
   "Student receives login credentials.",
   "Student logs in and completes the registration form.",
-  "Registrar reviews and approves the registration.",
+  "The system automatically approves the registration.",
   "Student is officially enrolled.",
   "Student accesses the Student Dashboard.",
 ];
@@ -78,7 +78,7 @@ const featureGroups = [
     title: "Registrar",
     icon: ClipboardList,
     items: [
-      { name: "Registration Management", description: "Review, approve, and organize student registrations." },
+      { name: "Registration Monitoring", description: "Monitor and verify student registration records." },
       { name: "Enrollment", description: "Coordinate and confirm student enrollment workflows." },
       { name: "Subject Offerings", description: "Manage available subjects and effective scheduling." },
       { name: "Faculty Assignment", description: "Align instructors to their teaching responsibilities." },

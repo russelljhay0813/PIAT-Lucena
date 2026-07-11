@@ -53,7 +53,7 @@ export async function submitRegistration(
   data: StudentRegistrationPayload & { studentId?: string },
 ): Promise<StudentRegistration> {
   const created = data.studentId
-    ? await updateStudent(data.studentId, { ...data, status: data.status ?? "submitted" })
+    ? await updateStudent(data.studentId, { ...data, status: data.status ?? "approved" })
     : await createStudent(data);
   broadcastUpdate();
   return created;

@@ -4,6 +4,7 @@ import { LogIn } from "lucide-react";
 import { motion } from "framer-motion";
 import { useState, useEffect } from "react";
 import { loginUser, loginStudent, type UserAccount } from "@/lib/api";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/login")({
   head: () => ({
@@ -19,7 +20,7 @@ const roleDashboardPaths: Record<UserAccount["role"], string> = {
   admin: "/dashboard/admin",
   faculty: "/dashboard/faculty",
   registrar: "/dashboard/registrar",
-  student: "/dashboard/student",
+  student: "/dashboard/student/",
 };
 
 function LoginPage() {
@@ -28,6 +29,7 @@ function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
 
@@ -44,6 +46,8 @@ function LoginPage() {
         navigate({ to: "/register" });
         return;
       }
+      navigate({ to: "/dashboard/student/" });
+      return;
     }
 
     navigate({ to: roleDashboardPaths[user.role] });
@@ -52,6 +56,12 @@ function LoginPage() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+
+    if (!email.trim() || !password.trim()) {
+      setError("Please enter both your email and password.");
+      return;
+    }
+
     setIsLoading(true);
 
     try {
@@ -77,7 +87,7 @@ function LoginPage() {
             createdAt: studentRecord.submittedAt,
           };
         } else {
-          setError("Invalid email or password.");
+          setError("We couldn’t find an account with those credentials. Please try again.");
           setIsLoading(false);
           return;
         }
@@ -96,7 +106,7 @@ function LoginPage() {
         name: `${userAccount.firstName} ${userAccount.lastName}`,
         email: userAccount.email,
         role: userAccount.role,
-        studentId: studentRecord?.studentId || userAccount.userId || userAccount.studentId,
+        studentId: studentRecord?.studentId ?? undefined,
         program: studentRecord?.program || userAccount.program,
         yearLevel: studentRecord?.yearLevel || userAccount.yearLevel,
         semester: studentRecord?.semester || userAccount.semester,
@@ -108,6 +118,7 @@ function LoginPage() {
       };
 
       loginAs(sessionUser);
+      toast.success(`Welcome back, ${sessionUser.firstName || sessionUser.name}!`);
 
       if (userAccount.role === "student") {
         const nextStatus = studentRecord?.status?.toLowerCase();
@@ -115,7 +126,11 @@ function LoginPage() {
           navigate({ to: "/register" });
           return;
         }
+        navigate({ to: "/dashboard/student/" });
+        return;
       }
+
+      navigate({ to: roleDashboardPaths[userAccount.role] });
     } catch {
       setError("Invalid email or password.");
     } finally {
@@ -150,10 +165,15 @@ function LoginPage() {
               <input
                 id="login-email"
                 type="email"
+                autoComplete="email"
                 required
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (error) setError("");
+                }}
                 placeholder="name@piat.edu.ph"
+                aria-describedby={error ? "login-error" : undefined}
                 className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
               />
             </div>
@@ -161,17 +181,35 @@ function LoginPage() {
               <label className="mb-1.5 block text-sm font-medium text-foreground" htmlFor="login-password">
                 Password
               </label>
-              <input
-                id="login-password"
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter your password"
-                className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-              />
+              <div className="relative">
+                <input
+                  id="login-password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  required
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (error) setError("");
+                  }}
+                  placeholder="Enter your password"
+                  aria-describedby={error ? "login-error" : undefined}
+                  className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 pr-16 text-sm text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((value) => !value)}
+                  className="absolute inset-y-0 right-2 my-auto rounded-md px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+                >
+                  {showPassword ? "Hide" : "Show"}
+                </button>
+              </div>
             </div>
-            {error && <p className="text-sm text-destructive">{error}</p>}
+            {error && (
+              <p id="login-error" role="alert" aria-live="polite" className="text-sm text-destructive">
+                {error}
+              </p>
+            )}
             <button
               type="submit"
               disabled={isLoading}

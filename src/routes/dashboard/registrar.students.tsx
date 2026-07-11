@@ -89,8 +89,8 @@ function RegistrarStudents() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-heading text-xl font-bold text-foreground">Student Registration</h1>
-        <p className="text-sm text-muted-foreground">View and manage registered students</p>
+        <h1 className="font-heading text-xl font-bold text-foreground">Recently Registered Students</h1>
+        <p className="text-sm text-muted-foreground">Review newly approved registrations and manage enrolled students.</p>
       </div>
 
       <div className="relative max-w-md">
@@ -112,7 +112,10 @@ function RegistrarStudents() {
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Program</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Year Level</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Semester</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Academic Year</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Registration Date</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Registration Status</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Enrollment Status</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Actions</th>
             </tr>
           </thead>
@@ -130,9 +133,16 @@ function RegistrarStudents() {
                 <td className="px-4 py-3 text-muted-foreground">{s.program}</td>
                 <td className="px-4 py-3 text-muted-foreground">{s.yearLevel || "—"}</td>
                 <td className="px-4 py-3 text-muted-foreground">{s.semester || "—"}</td>
+                <td className="px-4 py-3 text-muted-foreground">{s.academicYear || "—"}</td>
+                <td className="px-4 py-3 text-muted-foreground">{s.submittedAt ? new Date(s.submittedAt).toLocaleDateString() : "—"}</td>
                 <td className="px-4 py-3">
                   <span className="rounded-full px-2 py-0.5 text-xs font-medium bg-success/10 text-success capitalize">
                     {s.status}
+                  </span>
+                </td>
+                <td className="px-4 py-3">
+                  <span className="rounded-full px-2 py-0.5 text-xs font-medium bg-primary/10 text-primary capitalize">
+                    {s.status === "approved" ? "Enrolled" : "Pending"}
                   </span>
                 </td>
                 <td className="px-4 py-3">
@@ -161,7 +171,7 @@ function RegistrarStudents() {
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
+                <td colSpan={10} className="px-4 py-8 text-center text-muted-foreground">
                   No registered students found
                 </td>
               </tr>

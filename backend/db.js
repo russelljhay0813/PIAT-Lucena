@@ -42,6 +42,22 @@ export function get(db, sql, params = []) {
   });
 }
 
+export function withTransaction(db, callback) {
+  return new Promise((resolve, reject) => {
+    db.serialize(async () => {
+      try {
+        await run(db, "BEGIN");
+        const result = await callback();
+        await run(db, "COMMIT");
+        resolve(result);
+      } catch (error) {
+        await run(db, "ROLLBACK").catch(() => {});
+        reject(error);
+      }
+    });
+  });
+}
+
 async function columnExists(db, table, column) {
   const rows = await all(db, `PRAGMA table_info(${table})`);
   return rows.some((row) => row.name === column);
@@ -96,12 +112,17 @@ export async function initDb(db) {
       status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'inactive')),
       program TEXT,
       yearLevel TEXT,
+      semester TEXT,
+      academicYear TEXT,
       createdAt TEXT NOT NULL,
       temporaryPassword TEXT,
       firstLoginAt TEXT,
       lastLoginAt TEXT
     )`,
   );
+  await addColumnIfMissing(db, "users", "temporaryPassword", "TEXT");
+  await addColumnIfMissing(db, "users", "semester", "TEXT");
+  await addColumnIfMissing(db, "users", "academicYear", "TEXT");
   await addColumnIfMissing(db, "users", "firstLoginAt", "TEXT");
   await addColumnIfMissing(db, "users", "lastLoginAt", "TEXT");
 
@@ -202,6 +223,9 @@ contactNumber TEXT,
   );
   await addColumnIfMissing(db, "students", "firstLoginAt", "TEXT");
   await addColumnIfMissing(db, "students", "lastLoginAt", "TEXT");
+  await addColumnIfMissing(db, "students", "placeOfBirth", "TEXT");
+  await addColumnIfMissing(db, "students", "barangay", "TEXT");
+  await addColumnIfMissing(db, "students", "parentRelationship", "TEXT");
 
   await run(
     db,

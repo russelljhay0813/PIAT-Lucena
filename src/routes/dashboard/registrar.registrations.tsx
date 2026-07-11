@@ -1,10 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Search, CheckCircle, XCircle, Clock, Eye } from "lucide-react";
+import { Search, XCircle, Clock, Eye } from "lucide-react";
 import {
-  getRegistrations,
-  approveRegistration,
   rejectRegistration,
   REGISTRATIONS_EVENT,
   type StudentRegistration,
@@ -21,10 +19,14 @@ function RegistrarRegistrations() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"All" | "pending" | "approved" | "rejected">("pending");
   const [selectedReg, setSelectedReg] = useState<StudentRegistration | null>(null);
+  const [rejectingReg, setRejectingReg] = useState<StudentRegistration | null>(null);
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [isSubmittingRejection, setIsSubmittingRejection] = useState(false);
 
   const refresh = async () => {
     try {
-      setList(await fetchStudents());
+      const registrations = await fetchStudents();
+      setList(registrations);
     } catch {
       setList([]);
     }
@@ -41,7 +43,7 @@ function RegistrarRegistrations() {
     };
   }, []);
 
-  const isPendingStatus = (status: string) => ["pending", "submitted", "under_review", "in_progress"].includes(status);
+  const isPendingStatus = (status: string) => ["pending", "submitted", "under_review", "in_progress", "not_started"].includes(status);
 
   const filtered = list.filter((r) => {
     const q = search.toLowerCase();
@@ -62,31 +64,35 @@ function RegistrarRegistrations() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-heading text-xl font-bold text-foreground">Student Applications</h1>
-        <p className="text-sm text-muted-foreground">Review and approve incoming student registration applications</p>
-      </div>
+      <div className="space-y-4">
+        <div>
+          <h1 className="font-heading text-xl font-bold text-foreground">Student Applications</h1>
+          <p className="text-sm text-muted-foreground">
+            Monitor incoming student registrations, verify records, and manage application status.
+          </p>
+        </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        {[
-          { label: "Pending", count: counts.pending, color: "text-warning", icon: Clock },
-          { label: "Approved", count: counts.approved, color: "text-success", icon: CheckCircle },
-          { label: "Rejected", count: counts.rejected, color: "text-destructive", icon: XCircle },
-        ].map((s) => (
-          <div key={s.label} className="rounded-xl border bg-card p-4 shadow-sm flex items-center gap-3">
-            <div className={`flex h-10 w-10 items-center justify-center rounded-lg bg-muted ${s.color}`}>
-              <s.icon className="h-5 w-5" />
+        <div className="grid gap-3 sm:grid-cols-3">
+          {[
+            { label: "Pending", count: counts.pending, color: "text-warning", icon: Clock },
+            { label: "Approved", count: counts.approved, color: "text-success", icon: XCircle },
+            { label: "Rejected", count: counts.rejected, color: "text-destructive", icon: XCircle },
+          ].map((s) => (
+            <div key={s.label} className="flex items-center gap-3 rounded-xl border bg-card p-4 shadow-sm">
+              <div className={`flex h-10 w-10 items-center justify-center rounded-lg bg-muted ${s.color}`}>
+                <s.icon className="h-5 w-5" />
+              </div>
+              <div>
+                <p className={`font-heading text-2xl font-bold ${s.color}`}>{s.count}</p>
+                <p className="text-xs text-muted-foreground">{s.label}</p>
+              </div>
             </div>
-            <div>
-              <p className={`font-heading text-2xl font-bold ${s.color}`}>{s.count}</p>
-              <p className="text-xs text-muted-foreground">{s.label}</p>
-            </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 min-w-[200px]">
+        <div className="relative min-w-50 flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
             value={search}
@@ -108,7 +114,7 @@ function RegistrarRegistrations() {
         </div>
       </div>
 
-      <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
+      <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-muted/50">
@@ -132,13 +138,17 @@ function RegistrarRegistrations() {
                 className="border-b last:border-0 hover:bg-muted/30 transition-colors"
               >
                 <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{r.studentId}</td>
-                <td className="px-4 py-3 font-medium text-foreground">{r.firstName} {r.middleName ? r.middleName + ' ' : ''}{r.lastName}{r.suffix ? ' ' + r.suffix : ''}</td>
+                <td className="px-4 py-3 font-medium text-foreground">
+                  {r.firstName} {r.middleName ? `${r.middleName} ` : ""}
+                  {r.lastName}
+                  {r.suffix ? ` ${r.suffix}` : ""}
+                </td>
                 <td className="px-4 py-3 text-muted-foreground">{r.program}</td>
                 <td className="px-4 py-3 text-muted-foreground">{r.yearLevel}</td>
                 <td className="px-4 py-3 text-muted-foreground">{r.semester || "—"}</td>
                 <td className="px-4 py-3 text-muted-foreground">{r.submittedAt ? new Date(r.submittedAt).toLocaleDateString() : "—"}</td>
                 <td className="px-4 py-3">
-                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${r.status === 'approved' ? 'bg-success/10 text-success' : r.status === 'rejected' ? 'bg-destructive/10 text-destructive' : 'bg-warning/10 text-warning'}`}>
+                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${r.status === "approved" ? "bg-success/10 text-success" : r.status === "rejected" ? "bg-destructive/10 text-destructive" : "bg-warning/10 text-warning"}`}>
                     {r.status}
                   </span>
                 </td>
@@ -152,29 +162,15 @@ function RegistrarRegistrations() {
                       <Eye className="h-3.5 w-3.5" /> View
                     </button>
                     {isPendingStatus(r.status) && (
-                      <>
-                        <button
-                          onClick={async () => {
-                            await approveRegistration(r.id);
-                            toast.success("Application approved");
-                            await refresh();
-                          }}
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-success px-2 py-1 text-xs font-medium text-success-foreground hover:opacity-90"
-                        >
-                          <CheckCircle className="h-3.5 w-3.5" /> Approve
-                        </button>
-                        <button
-                          onClick={async () => {
-                            const note = prompt("Reason for rejection (optional):") ?? undefined;
-                            await rejectRegistration(r.id, note || undefined);
-                            toast.success("Application rejected");
-                            await refresh();
-                          }}
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-destructive/10 px-2 py-1 text-xs font-medium text-destructive hover:bg-destructive/20"
-                        >
-                          <XCircle className="h-3.5 w-3.5" /> Reject
-                        </button>
-                      </>
+                      <button
+                        onClick={() => {
+                          setRejectingReg(r);
+                          setRejectionReason("");
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-destructive/10 px-2 py-1 text-xs font-medium text-destructive hover:bg-destructive/20"
+                      >
+                        <XCircle className="h-3.5 w-3.5" /> Reject
+                      </button>
                     )}
                   </div>
                 </td>
@@ -199,7 +195,7 @@ function RegistrarRegistrations() {
             className="w-full max-w-lg rounded-xl bg-card p-6 shadow-lg"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="font-heading text-lg font-bold text-foreground mb-4">Application Details</h2>
+            <h2 className="mb-4 font-heading text-lg font-bold text-foreground">Application Details</h2>
             <div className="grid gap-3 text-sm">
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -212,7 +208,11 @@ function RegistrarRegistrations() {
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Full Name</p>
-                  <p className="font-medium text-foreground">{selectedReg.firstName} {selectedReg.middleName ? selectedReg.middleName + ' ' : ''}{selectedReg.lastName}{selectedReg.suffix ? ' ' + selectedReg.suffix : ''}</p>
+                  <p className="font-medium text-foreground">
+                    {selectedReg.firstName} {selectedReg.middleName ? `${selectedReg.middleName} ` : ""}
+                    {selectedReg.lastName}
+                    {selectedReg.suffix ? ` ${selectedReg.suffix}` : ""}
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Email</p>
@@ -236,7 +236,7 @@ function RegistrarRegistrations() {
                 </div>
                 <div className="col-span-2">
                   <p className="text-xs text-muted-foreground">Address</p>
-                  <p className="font-medium text-foreground">{selectedReg.address || "—"}'</p>
+                  <p className="font-medium text-foreground">{selectedReg.address || "—"}</p>
                 </div>
               </div>
             </div>
@@ -246,6 +246,64 @@ function RegistrarRegistrations() {
                 className="rounded-lg border px-4 py-2 text-sm text-foreground hover:bg-muted"
               >
                 Close
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {rejectingReg && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setRejectingReg(null)}>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="w-full max-w-md rounded-xl bg-card p-6 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="mb-2 font-heading text-lg font-bold text-foreground">Reject Application</h2>
+            <p className="mb-4 text-sm text-muted-foreground">
+              Provide a short reason for rejecting {rejectingReg.firstName} {rejectingReg.lastName}. This message will be saved with the application status.
+            </p>
+            <label className="mb-2 block text-sm font-medium text-foreground" htmlFor="rejection-reason">
+              Reason (optional)
+            </label>
+            <textarea
+              id="rejection-reason"
+              value={rejectionReason}
+              onChange={(e) => setRejectionReason(e.target.value)}
+              rows={4}
+              placeholder="Enter a rejection note..."
+              className="w-full rounded-lg border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-accent"
+            />
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setRejectingReg(null);
+                  setRejectionReason("");
+                }}
+                className="rounded-lg border px-4 py-2 text-sm text-foreground hover:bg-muted"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isSubmittingRejection}
+                onClick={async () => {
+                  try {
+                    setIsSubmittingRejection(true);
+                    await rejectRegistration(rejectingReg.id, rejectionReason.trim() || undefined);
+                    toast.success("Application rejected");
+                    setRejectingReg(null);
+                    setRejectionReason("");
+                    await refresh();
+                  } finally {
+                    setIsSubmittingRejection(false);
+                  }
+                }}
+                className="rounded-lg bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground hover:opacity-90 disabled:opacity-60"
+              >
+                {isSubmittingRejection ? "Submitting..." : "Reject Application"}
               </button>
             </div>
           </motion.div>
