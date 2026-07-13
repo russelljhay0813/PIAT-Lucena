@@ -235,82 +235,7 @@ async function syncStudentEnrollment(student) {
     return [];
   }
 
-  let program = await get(db, "SELECT id FROM programs WHERE name = ?", [student.program]);
-  if (!program) {
-    const programId = crypto.randomUUID();
-    await run(db, "INSERT INTO programs (id, name, description, status, createdAt) VALUES (?, ?, ?, ?, ?)", [programId, student.program, `Auto-created for ${student.program}`, "active", new Date().toISOString()]);
-    program = { id: programId };
-  }
-
-  const curriculumItems = await all(
-    db,
-    "SELECT * FROM curriculum WHERE programId = ? AND yearLevel = ? AND semester = ?",
-    [program.id, student.yearLevel, student.semester],
-  );
-
-  const createdEnrollments = [];
-  for (const item of curriculumItems) {
-    let subject = await get(
-      db,
-      "SELECT * FROM subjects WHERE program = ? AND yearLevel = ? AND semester = ? AND code = ?",
-      [student.program, student.yearLevel, student.semester, item.subjectCode],
-    );
-
-    if (!subject) {
-      subject = {
-        id: crypto.randomUUID(),
-        code: item.subjectCode,
-        title: item.subjectTitle,
-        units: Number(item.units) || 3,
-        schedule: "TBA",
-        room: "TBA",
-        instructor: "Unassigned",
-        program: student.program,
-        yearLevel: student.yearLevel,
-        semester: student.semester,
-        facultyId: null,
-        academicYear: student.academicYear || null,
-        addedAt: Date.now(),
-      };
-      await run(
-        db,
-        `INSERT INTO subjects (id, code, title, units, schedule, room, instructor, program, yearLevel, semester, facultyId, academicYear, addedAt)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [subject.id, subject.code, subject.title, subject.units, subject.schedule, subject.room, subject.instructor, subject.program, subject.yearLevel, subject.semester, subject.facultyId, subject.academicYear, subject.addedAt],
-      );
-    }
-
-    const existing = await get(
-      db,
-      "SELECT id FROM enrollments WHERE studentId = ? AND subjectId = ? AND status = 'enrolled'",
-      [student.studentId, subject.id],
-    );
-
-    if (!existing) {
-      const enrollment = {
-        id: crypto.randomUUID(),
-        studentId: student.studentId,
-        subjectId: subject.id,
-        academicYear: student.academicYear || `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`,
-        semester: student.semester,
-        enrolledAt: new Date().toISOString(),
-        status: "enrolled",
-      };
-      await run(
-        db,
-        `INSERT INTO enrollments (id, studentId, subjectId, academicYear, semester, enrolledAt, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [enrollment.id, enrollment.studentId, enrollment.subjectId, enrollment.academicYear, enrollment.semester, enrollment.enrolledAt, enrollment.status],
-      );
-      createdEnrollments.push(enrollment);
-    }
-  }
-
-  if (createdEnrollments.length > 0) {
-    await createNotificationRecord(student.studentId, "schedule", "Subjects Assigned", `Your enrollment has been created with ${createdEnrollments.length} subject(s).`, student.studentId);
-  }
-
-  return createdEnrollments;
+  return [];
 }
 
 app.get("/api/subjects", async (req, res) => {
@@ -1263,47 +1188,10 @@ app.get("/api/enrollments", requireRole("admin", "registrar", "student"), async 
 });
 
 app.post("/api/enrollments", requireRole("admin", "registrar"), (req, res, next) => validateRequiredFields(req, res, next, ["studentId"]), (req, res, next) => validateArrayField(req, res, next, "subjectIds"), async (req, res) => {
-  const { studentId, subjectIds, academicYear, semester } = req.body;
+  const { studentId } = req.body;
 
-  const enrollments = await withTransaction(db, async () => {
-    const created = [];
-    if (!subjectIds.length) {
-      const student = await get(db, "SELECT * FROM students WHERE studentId = ?", [studentId]);
-      if (student) {
-        return await syncStudentEnrollment(student);
-      }
-      return [];
-    }
-
-    for (const subjectId of subjectIds) {
-      const existing = await get(db, "SELECT * FROM enrollments WHERE studentId = ? AND subjectId = ? AND status = 'enrolled'", [studentId, subjectId]);
-      if (!existing) {
-        const enrollment = {
-          id: crypto.randomUUID(),
-          studentId: String(studentId),
-          subjectId: String(subjectId),
-          academicYear: academicYear ? String(academicYear) : null,
-          semester: semester ? String(semester) : null,
-          enrolledAt: new Date().toISOString(),
-          status: "enrolled",
-        };
-        await run(
-          db,
-          `INSERT INTO enrollments (id, studentId, subjectId, academicYear, semester, enrolledAt, status) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [enrollment.id, enrollment.studentId, enrollment.subjectId, enrollment.academicYear, enrollment.semester, enrollment.enrolledAt, enrollment.status],
-        );
-        created.push(enrollment);
-      }
-    }
-
-    return created;
-  });
-
-  if (enrollments.length > 0) {
-    await createNotificationRecord(studentId, "schedule", "Enrollment Completed", `You have been enrolled in ${enrollments.length} subject(s).`, studentId);
-  }
-  await createActivityLog(req.userContext?.userId || "system", req.userContext?.role || "system", "Created enrollments", `${studentId} (${enrollments.length} item(s))`, req.userContext?.role || "system");
-  res.status(201).json(enrollments);
+  await createActivityLog(req.userContext?.userId || "system", req.userContext?.role || "system", "Enrollment request ignored", `${studentId} (student-only mode)`, req.userContext?.role || "system");
+  res.status(201).json([]);
 });
 
 app.get("/api/programs", async (_req, res) => {
@@ -1444,55 +1332,11 @@ app.get("/api/students/eligible-for-reenrollment", async (_req, res) => {
 
 app.post("/api/students/:studentId/reenroll", async (req, res) => {
   const { studentId } = req.params;
-  const { nextSemester, nextYear, nextAcademicYear } = req.body;
   const existing = await get(db, "SELECT * FROM students WHERE studentId = ?", [studentId]);
   if (!existing) return res.status(404).json({ error: "Student not found" });
 
-  const yearIndex = ["1st Year", "2nd Year", "3rd Year", "4th Year"].indexOf(existing.yearLevel);
-  const semIndex = ["1st Semester", "2nd Semester", "Summer"].indexOf(existing.semester);
-
-  let newYear = nextYear || existing.yearLevel;
-  let newSemester = nextSemester || existing.semester;
-  if (!nextSemester && !nextYear) {
-    if (semIndex < 1) {
-      newSemester = "2nd Semester";
-    } else if (semIndex === 1) {
-      newSemester = "1st Semester";
-      newYear = ["1st Year", "2nd Year", "3rd Year", "4th Year"][yearIndex + 1] || existing.yearLevel;
-    }
-  }
-
-  const programName = existing.program;
-  const programs = await all(db, "SELECT id, name FROM programs");
-  const resolvedProgramId = resolveProgramIdForStudent(programName, programs);
-
-  const result = await withTransaction(db, async () => {
-    await run(db, "UPDATE students SET yearLevel = ?, semester = ?, academicYear = ? WHERE studentId = ?", [newYear, newSemester, nextAcademicYear || existing.academicYear, studentId]);
-
-    const curriculum = resolvedProgramId
-      ? await all(db, "SELECT * FROM curriculum WHERE programId = ? AND yearLevel = ? AND semester = ?", [resolvedProgramId, newYear, newSemester])
-      : [];
-    const createdEnrollments = [];
-    for (const item of curriculum) {
-      const existingSubject = await get(db, "SELECT id FROM subjects WHERE program = ? AND yearLevel = ? AND semester = ? AND code = ?", [programName, newYear, newSemester, item.subjectCode]);
-      let subjectId = existingSubject?.id;
-      if (!existingSubject) {
-        subjectId = crypto.randomUUID();
-        await run(db, "INSERT INTO subjects (id, code, title, units, schedule, room, instructor, program, yearLevel, semester, facultyId, academicYear, addedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
-          [subjectId, item.subjectCode, item.subjectTitle, item.units, "TBA", "TBA", "Unassigned", programName, newYear, newSemester, null, nextAcademicYear || existing.academicYear, Date.now()]);
-      }
-      const enrollmentId = crypto.randomUUID();
-      await run(db, "INSERT INTO enrollments (id, studentId, subjectId, academicYear, semester, enrolledAt, status) VALUES (?, ?, ?, ?, ?, ?, ?)", 
-        [enrollmentId, studentId, subjectId, nextAcademicYear || existing.academicYear, newSemester, new Date().toISOString(), "enrolled"]);
-      createdEnrollments.push(enrollmentId);
-    }
-
-    await createNotificationRecord(studentId, "schedule", "Re-enrollment Opened", "Your re-enrollment has been processed for the next term.", studentId);
-    return createdEnrollments.length;
-  });
-
-  const updated = await get(db, "SELECT * FROM students WHERE studentId = ?", [studentId]);
-  res.json({ student: updated, enrollmentsCreated: result });
+  await createNotificationRecord(studentId, "schedule", "Re-enrollment Ignored", "Student-only mode is active, so no re-enrollment records were created.", studentId);
+  res.json({ student: existing, enrollmentsCreated: 0 });
 });
 
 app.post("/api/students/:studentId/finalize-records", async (req, res) => {
