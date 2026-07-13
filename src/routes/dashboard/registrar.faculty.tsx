@@ -2,7 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Search, UserPlus } from "lucide-react";
-import { fetchUsers as fetchFacultyUsers, fetchSubjects, updateSubjectApi } from "@/lib/api";
+import { fetchUsers as fetchFacultyUsers, fetchSubjects } from "@/lib/api";
+import { updateSubject } from "@/lib/subjects-store";
 import type { UserAccount } from "@/lib/api";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -34,6 +35,11 @@ function RegistrarFaculty() {
   const [selectedFaculty, setSelectedFaculty] = useState<UserAccount | null>(null);
   const [assignModal, setAssignModal] = useState(false);
   const [selectedSubjectId, setSelectedSubjectId] = useState("");
+  const [selectedProgram, setSelectedProgram] = useState("");
+  const [selectedYearLevel, setSelectedYearLevel] = useState("");
+  const [selectedSemester, setSelectedSemester] = useState("");
+  const [subjectSearch, setSubjectSearch] = useState("");
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [reassignModal, setReassignModal] = useState(false);
   const [reassignSubject, setReassignSubject] = useState<any | null>(null);
   const [newFacultyId, setNewFacultyId] = useState("");
@@ -66,14 +72,45 @@ function RegistrarFaculty() {
   const getTotalUnits = (facultyId: string) => getFacultySubjects(facultyId).reduce((sum, s) => sum + s.units, 0);
 
   const handleAssign = async () => {
-    if (!selectedFaculty || !selectedSubjectId) return;
+    const errors: string[] = [];
+    if (!selectedFaculty) {
+      errors.push("Select a faculty member before assigning.");
+    }
+    if (!selectedProgram) {
+      errors.push("Please select a program.");
+    }
+    if (!selectedYearLevel) {
+      errors.push("Please select a year level.");
+    }
+    if (!selectedSemester) {
+      errors.push("Please select a semester.");
+    }
+    if (!selectedSubjectId) {
+      errors.push("Please select a subject.");
+    }
+    if (errors.length > 0) {
+      setValidationErrors(errors);
+      return;
+    }
+
     try {
-      await updateSubjectApi(selectedSubjectId, { facultyId: selectedFaculty.id, instructor: `${selectedFaculty.firstName} ${selectedFaculty.lastName}` });
+      await updateSubject(selectedSubjectId, {
+        facultyId: selectedFaculty.id,
+        instructor: `${selectedFaculty.firstName} ${selectedFaculty.lastName}`,
+      });
       toast.success("Subject assigned");
       setAssignModal(false);
       setSelectedFaculty(null);
       setSelectedSubjectId("");
+      setSelectedProgram("");
+      setSelectedYearLevel("");
+      setSelectedSemester("");
+      setSubjectSearch("");
+      setValidationErrors([]);
       loadData();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("bwest:subjects-changed"));
+      }
     } catch (err: any) {
       toast.error(err?.message || "Failed to assign subject");
     }
@@ -109,6 +146,11 @@ function RegistrarFaculty() {
   const openAssignModal = (fac: UserAccount) => {
     setSelectedFaculty(fac);
     setSelectedSubjectId("");
+    setSelectedProgram("");
+    setSelectedYearLevel("");
+    setSelectedSemester("");
+    setSubjectSearch("");
+    setValidationErrors([]);
     setAssignModal(true);
   };
 
@@ -119,6 +161,21 @@ function RegistrarFaculty() {
   };
 
   const unassignedSubjects = subjects.filter((s) => !s.facultyId);
+  const availablePrograms = Array.from(new Set(unassignedSubjects.map((subject) => subject.program).filter(Boolean))).sort();
+  const availableYearLevels = selectedProgram
+    ? Array.from(new Set(unassignedSubjects.filter((subject) => subject.program === selectedProgram).map((subject) => subject.yearLevel).filter(Boolean))).sort()
+    : [];
+  const availableSemesters = selectedProgram && selectedYearLevel
+    ? Array.from(new Set(unassignedSubjects.filter((subject) => subject.program === selectedProgram && subject.yearLevel === selectedYearLevel).map((subject) => subject.semester).filter(Boolean))).sort()
+    : [];
+  const availableSubjects = selectedProgram && selectedYearLevel && selectedSemester
+    ? unassignedSubjects.filter((subject) =>
+        subject.program === selectedProgram &&
+        subject.yearLevel === selectedYearLevel &&
+        subject.semester === selectedSemester &&
+        (subject.code.toLowerCase().includes(subjectSearch.toLowerCase()) || subject.title.toLowerCase().includes(subjectSearch.toLowerCase())),
+      )
+    : [];
 
   return (
     <div className="space-y-6">
@@ -225,37 +282,117 @@ function RegistrarFaculty() {
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
+            {validationErrors.length > 0 && (
+              <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                {validationErrors.map((error) => (
+                  <p key={error}>{error}</p>
+                ))}
+              </div>
+            )}
             <div className="space-y-1.5">
-              <Label>Subject</Label>
-              <Select value={selectedSubjectId} onValueChange={setSelectedSubjectId}>
+              <Label>Program</Label>
+              <Select value={selectedProgram} onValueChange={(value) => {
+                setSelectedProgram(value);
+                setSelectedYearLevel("");
+                setSelectedSemester("");
+                setSelectedSubjectId("");
+              }}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select subject..." />
+                  <SelectValue placeholder="Select Program" />
                 </SelectTrigger>
                 <SelectContent>
-                  {unassignedSubjects.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.code} - {s.title}
-                    </SelectItem>
-                  ))}
-                  {unassignedSubjects.length === 0 && (
-                    <div className="p-2 text-xs text-muted-foreground">No unassigned subjects</div>
+                  {availablePrograms.length === 0 ? (
+                    <div className="p-2 text-xs text-muted-foreground">No programs available</div>
+                  ) : (
+                    availablePrograms.map((program) => (
+                      <SelectItem key={program} value={program}>
+                        {program}
+                      </SelectItem>
+                    ))
                   )}
                 </SelectContent>
               </Select>
             </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Or reassign from existing:</p>
-              <div className="mt-2 flex flex-wrap gap-1">
-                {subjects.map((s) => (
-                  <button
-                    key={s.id}
-                    onClick={() => { setAssignModal(false); setTimeout(() => openReassignModal(s), 100); }}
-                    className="rounded-full bg-muted px-2 py-0.5 text-xs text-foreground hover:bg-muted/80"
-                  >
-                    {s.code}
-                  </button>
-                ))}
-              </div>
+
+            <div className="space-y-1.5">
+              <Label>Year Level</Label>
+              <Select value={selectedYearLevel} onValueChange={(value) => {
+                setSelectedYearLevel(value);
+                setSelectedSemester("");
+                setSelectedSubjectId("");
+              }}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select Year Level" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableYearLevels.length === 0 ? (
+                    <div className="p-2 text-xs text-muted-foreground">No year levels available</div>
+                  ) : (
+                    availableYearLevels.map((yearLevel) => (
+                      <SelectItem key={yearLevel} value={yearLevel}>
+                        {yearLevel}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Semester</Label>
+              <Select value={selectedSemester} onValueChange={(value) => {
+                setSelectedSemester(value);
+                setSelectedSubjectId("");
+              }}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select Semester" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableSemesters.length === 0 ? (
+                    <div className="p-2 text-xs text-muted-foreground">No semesters available</div>
+                  ) : (
+                    availableSemesters.map((semester) => (
+                      <SelectItem key={semester} value={semester}>
+                        {semester}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Subject</Label>
+              <input
+                className="w-full rounded-lg border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                placeholder="Search subjects by code or title"
+                value={subjectSearch}
+                onChange={(e) => setSubjectSearch(e.target.value)}
+                disabled={!selectedProgram || !selectedYearLevel || !selectedSemester}
+              />
+              <Select value={selectedSubjectId} onValueChange={setSelectedSubjectId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select Subject" />
+                </SelectTrigger>
+                <SelectContent className="max-h-72 overflow-auto">
+                  {availableSubjects.length > 0 ? (
+                    availableSubjects.map((subject) => (
+                      <SelectItem key={subject.id} value={subject.id}>
+                        <div className="flex flex-col text-left">
+                          <span className="font-medium">{subject.code} — {subject.title}</span>
+                          <span className="text-xs text-muted-foreground">{subject.yearLevel || "—"} • {subject.semester || "—"}</span>
+                        </div>
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <div className="p-2 text-xs text-muted-foreground">
+                      {selectedProgram && selectedYearLevel && selectedSemester
+                        ? "No available unassigned subjects match the selected filters."
+                        : "Please select Program, Year Level, and Semester first."}
+                    </div>
+                  )}
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <DialogFooter>

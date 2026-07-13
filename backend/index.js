@@ -877,7 +877,7 @@ app.get("/api/activity-logs", requireRole("admin"), async (_req, res) => {
 });
 
 // Users endpoints
-app.get("/api/users", requireRole("admin"), async (req, res) => {
+app.get("/api/users", requireRole("admin", "registrar"), async (req, res) => {
   const role = req.query.role ? String(req.query.role) : null;
   const query = role
     ? { sql: "SELECT id, userId, username, firstName, middleName, lastName, email, role, status, program, yearLevel, createdAt, temporaryPassword FROM users WHERE role = ? ORDER BY lastName, firstName", params: [role] }
