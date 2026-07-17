@@ -7,6 +7,7 @@ export interface User {
   name: string;
   email: string;
   role: UserRole;
+  token?: string;
   studentId?: string;
   program?: string;
   yearLevel?: string;
@@ -60,10 +61,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loginAs = (u: User) => {
     setUser(u);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(u));
+    }
   };
 
   const logout = () => {
     setUser(null);
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(STORAGE_KEY);
+    }
   };
 
   return (

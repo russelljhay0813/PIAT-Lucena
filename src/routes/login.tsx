@@ -3,7 +3,7 @@ import { useAuth } from "@/lib/auth-context";
 import { LogIn } from "lucide-react";
 import { motion } from "framer-motion";
 import { useState, useEffect } from "react";
-import { loginUser, loginStudent, type UserAccount } from "@/lib/api";
+import { fetchStudentById, loginUser, loginStudent, type UserAccount } from "@/lib/api";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/login")({
@@ -20,7 +20,7 @@ const roleDashboardPaths: Record<UserAccount["role"], string> = {
   admin: "/dashboard/admin",
   faculty: "/dashboard/faculty",
   registrar: "/dashboard/registrar",
-  student: "/dashboard/student/",
+  student: "/dashboard/student",
 };
 
 function LoginPage() {
@@ -46,7 +46,7 @@ function LoginPage() {
         navigate({ to: "/register" });
         return;
       }
-      navigate({ to: "/dashboard/student/" });
+      navigate({ to: "/dashboard/student" });
       return;
     }
 
@@ -82,9 +82,10 @@ function LoginPage() {
             status: "active",
             program: studentRecord.program,
             yearLevel: studentRecord.yearLevel,
-            semester: studentRecord.semester,
-            academicYear: studentRecord.academicYear,
+            semester: studentRecord.semester ?? undefined,
+            academicYear: studentRecord.academicYear ?? undefined,
             createdAt: studentRecord.submittedAt,
+            token: (studentRecord as any).token,
           };
         } else {
           setError("We couldn’t find an account with those credentials. Please try again.");
@@ -93,44 +94,59 @@ function LoginPage() {
         }
       }
 
+      if (!userAccount) {
+        setError("We couldn’t find an account with those credentials. Please try again.");
+        setIsLoading(false);
+        return;
+      }
+
       if (userAccount.role === "student") {
         try {
-          studentRecord = await loginStudent(email, password);
+          if (userAccount.studentId) {
+            studentRecord = await fetchStudentById(userAccount.studentId, (userAccount as any).token);
+          } else {
+            studentRecord = await loginStudent(email, password);
+          }
+          if (!(userAccount as any).token && (studentRecord as any)?.token) {
+            (userAccount as any).token = (studentRecord as any).token;
+          }
         } catch {
           studentRecord = null;
         }
       }
 
+      const ua = userAccount as UserAccount;
       const sessionUser = {
-        id: userAccount.id,
-        name: `${userAccount.firstName} ${userAccount.lastName}`,
-        email: userAccount.email,
-        role: userAccount.role,
-        studentId: studentRecord?.studentId ?? undefined,
-        program: studentRecord?.program || userAccount.program,
-        yearLevel: studentRecord?.yearLevel || userAccount.yearLevel,
-        semester: studentRecord?.semester || userAccount.semester,
-        academicYear: studentRecord?.academicYear || userAccount.academicYear,
-        firstName: userAccount.firstName,
-        lastName: userAccount.lastName,
-        middleName: userAccount.middleName || undefined,
-        registrationStatus: userAccount.role === "student" ? studentRecord?.status : undefined,
+        id: ua.id,
+        name: `${ua.firstName} ${ua.lastName}`,
+        email: ua.email,
+        role: ua.role,
+        token: ua.token ?? (studentRecord as any)?.token,
+        studentId: ua.studentId ?? studentRecord?.studentId ?? undefined,
+        program: studentRecord?.program || ua.program,
+        yearLevel: studentRecord?.yearLevel || ua.yearLevel,
+        semester: studentRecord?.semester ?? ua.semester ?? undefined,
+        academicYear: studentRecord?.academicYear ?? ua.academicYear ?? undefined,
+        firstName: ua.firstName,
+        lastName: ua.lastName,
+        middleName: ua.middleName || undefined,
+        registrationStatus: ua.role === "student" ? studentRecord?.status : undefined,
       };
 
       loginAs(sessionUser);
       toast.success(`Welcome back, ${sessionUser.firstName || sessionUser.name}!`);
 
-      if (userAccount.role === "student") {
+      if (ua.role === "student") {
         const nextStatus = studentRecord?.status?.toLowerCase();
         if (!nextStatus || nextStatus !== "approved") {
           navigate({ to: "/register" });
           return;
         }
-        navigate({ to: "/dashboard/student/" });
+        navigate({ to: "/dashboard/student" });
         return;
       }
 
-      navigate({ to: roleDashboardPaths[userAccount.role] });
+      navigate({ to: roleDashboardPaths[ua.role] });
     } catch {
       setError("Invalid email or password.");
     } finally {

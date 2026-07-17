@@ -10,6 +10,7 @@ import {
   type StudentRegistration as ApiStudentRegistration,
   type StudentRegistrationPayload,
 } from "./api";
+import { YEAR_LEVELS, SEMESTERS } from "@/lib/subjects-store";
 
 export type RegistrationStatus = "not_started" | "in_progress" | "submitted" | "under_review" | "approved" | "rejected";
 
@@ -70,8 +71,8 @@ export async function approveRegistration(id: string, note?: string) {
     reviewNote: note,
   });
   
-  const studentYearLevel = reg.yearLevel || "1st Year";
-  const studentSemester = reg.semester || "1st Semester";
+  const studentYearLevel = reg.yearLevel || YEAR_LEVELS[0];
+  const studentSemester = reg.semester || SEMESTERS[0];
   const studentAcademicYear = reg.academicYear || `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`;
   
   try {

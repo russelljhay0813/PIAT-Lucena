@@ -95,8 +95,8 @@ function RegistrarFaculty() {
 
     try {
       await updateSubject(selectedSubjectId, {
-        facultyId: selectedFaculty.id,
-        instructor: `${selectedFaculty.firstName} ${selectedFaculty.lastName}`,
+        facultyId: selectedFaculty!.id,
+        instructor: `${selectedFaculty!.firstName} ${selectedFaculty!.lastName}`,
       });
       toast.success("Subject assigned");
       setAssignModal(false);
@@ -121,7 +121,7 @@ function RegistrarFaculty() {
     const newFaculty = faculty.find((f) => f.id === newFacultyId);
     if (!newFaculty) return;
     try {
-      await updateSubjectApi(reassignSubject.id, { facultyId: newFaculty.id, instructor: `${newFaculty.firstName} ${newFaculty.lastName}` });
+      await updateSubject(reassignSubject.id, { facultyId: newFaculty.id, instructor: `${newFaculty.firstName} ${newFaculty.lastName}` });
       toast.success("Subject reassigned");
       setReassignModal(false);
       setReassignSubject(null);
@@ -135,7 +135,7 @@ function RegistrarFaculty() {
   const handleRemoveAssignment = async (subject: any) => {
     if (!confirm(`Remove faculty assignment from ${subject.code}?`)) return;
     try {
-      await updateSubjectApi(subject.id, { facultyId: "", instructor: "Unassigned" });
+      await updateSubject(subject.id, { facultyId: "", instructor: "Unassigned" });
       toast.success("Assignment removed");
       loadData();
     } catch (err: any) {

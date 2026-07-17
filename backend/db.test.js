@@ -52,3 +52,30 @@ test("initDb adds semester and academicYear columns to legacy users table", asyn
     await new Promise((resolve, reject) => db.close((err) => (err ? reject(err) : resolve())));
   }
 });
+
+test("initDb seeds subject offerings for every supported academic year", async () => {
+  const db = new sqlite3.Database(":memory:");
+
+  try {
+    await initDb(db);
+    const academicYears = await new Promise((resolve, reject) => {
+      db.all("SELECT DISTINCT academicYear FROM subjects WHERE academicYear IS NOT NULL ORDER BY academicYear", (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows.map((row) => row.academicYear));
+      });
+    });
+
+    assert.deepEqual(academicYears, ["2025-2026", "2026-2027", "2027-2028", "2028-2029"]);
+
+    const programCount = await new Promise((resolve, reject) => {
+      db.get("SELECT COUNT(DISTINCT program) AS count FROM subjects WHERE academicYear = '2025-2026'", (err, row) => {
+        if (err) reject(err);
+        else resolve(row.count);
+      });
+    });
+
+    assert.ok(programCount >= 5, "expected at least one offering per program for the first academic year");
+  } finally {
+    await new Promise((resolve, reject) => db.close((err) => (err ? reject(err) : resolve())));
+  }
+});

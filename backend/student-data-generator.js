@@ -267,8 +267,8 @@ export async function seedStudentRecords({ academicYear = "2026-2027", activeSem
 
         await run(
           db,
-          `INSERT INTO users (id, userId, username, email, password, firstName, middleName, lastName, role, status, program, yearLevel, semester, academicYear, createdAt, temporaryPassword)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO users (id, userId, username, email, password, firstName, middleName, lastName, studentId, role, status, program, yearLevel, semester, academicYear, createdAt, temporaryPassword)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             crypto.randomUUID(),
             normalized.studentId,
@@ -278,6 +278,7 @@ export async function seedStudentRecords({ academicYear = "2026-2027", activeSem
             normalized.firstName,
             normalized.middleName,
             normalized.lastName,
+            normalized.studentId,
             "student",
             "active",
             normalized.program,

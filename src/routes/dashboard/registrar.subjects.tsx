@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { BookOpen, Plus, Search } from "lucide-react";
 import { motion } from "framer-motion";
 import { useSubjects, YEAR_LEVELS, SEMESTERS } from "@/lib/subjects-store";
-import { createSubject } from "@/lib/api";
+import { createSubject, fetchAcademicStructure, type AcademicStructure } from "@/lib/api";
 import { fetchUsers, fetchPrograms } from "@/lib/api";
 import type { UserAccount } from "@/lib/api";
 import { toast } from "sonner";
@@ -34,6 +34,7 @@ function RegistrarSubjects() {
   const subjects = useSubjects();
   const [facultyUsers, setFacultyUsers] = useState<UserAccount[]>([]);
   const [programs, setPrograms] = useState<string[]>([]);
+  const [academicStructure, setAcademicStructure] = useState<AcademicStructure>({ academicYears: [], yearLevels: [], semesters: [] });
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [programFilter, setProgramFilter] = useState("All");
   const [yearFilter, setYearFilter] = useState("All");
@@ -47,10 +48,16 @@ function RegistrarSubjects() {
     schedule: "",
     room: "",
     program: "",
-    yearLevel: "1st Year",
-    semester: "1st Semester",
+    yearLevel: "",
+    semester: "",
     facultyId: "",
   });
+  const yearLevels = academicStructure.yearLevels.length
+    ? academicStructure.yearLevels
+    : YEAR_LEVELS;
+  const semesters = academicStructure.semesters.length
+    ? academicStructure.semesters
+    : SEMESTERS;
 
   useEffect(() => {
     const loadFaculty = async () => {
@@ -59,15 +66,35 @@ function RegistrarSubjects() {
     };
     const loadPrograms = async () => {
       try {
-        const data = await fetchPrograms();
-        setPrograms(data);
+        const [programData, structureData] = await Promise.all([fetchPrograms(), fetchAcademicStructure()]);
+        setPrograms(programData);
+        setAcademicStructure(structureData);
       } catch {
         setPrograms([]);
+        setAcademicStructure({ academicYears: [], yearLevels: [], semesters: [] });
       }
     };
     loadFaculty();
     loadPrograms();
   }, []);
+
+  useEffect(() => {
+    if (academicStructure.yearLevels.length && !newSubject.yearLevel) {
+      setNewSubject((prev) => ({ ...prev, yearLevel: academicStructure.yearLevels[0] }));
+    }
+    if (academicStructure.semesters.length && !newSubject.semester) {
+      setNewSubject((prev) => ({ ...prev, semester: academicStructure.semesters[0] }));
+    }
+  }, [academicStructure, newSubject.yearLevel, newSubject.semester]);
+
+  useEffect(() => {
+    if (academicStructure.yearLevels.length && !newSubject.yearLevel) {
+      setNewSubject((prev) => ({ ...prev, yearLevel: academicStructure.yearLevels[0] }));
+    }
+    if (academicStructure.semesters.length && !newSubject.semester) {
+      setNewSubject((prev) => ({ ...prev, semester: academicStructure.semesters[0] }));
+    }
+  }, [academicStructure, newSubject.yearLevel, newSubject.semester]);
 
   const filteredSubjects = subjects.filter((s) => {
     const matchProgram = programFilter === "All" || s.program === programFilter;
@@ -110,8 +137,8 @@ function RegistrarSubjects() {
       schedule: "",
       room: "",
       program: "",
-      yearLevel: "1st Year",
-      semester: "1st Semester",
+      yearLevel: YEAR_LEVELS[0],
+      semester: SEMESTERS[0],
       facultyId: "",
     });
   };
@@ -152,7 +179,7 @@ function RegistrarSubjects() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="All">All Years</SelectItem>
-            {YEAR_LEVELS.map((y) => (
+            {academicStructure.yearLevels.map((y) => (
               <SelectItem key={y} value={y}>
                 {y}
               </SelectItem>
@@ -166,7 +193,7 @@ function RegistrarSubjects() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="All">All Semesters</SelectItem>
-            {SEMESTERS.map((s) => (
+            {academicStructure.semesters.map((s) => (
               <SelectItem key={s} value={s}>
                 {s}
               </SelectItem>
@@ -301,7 +328,7 @@ function RegistrarSubjects() {
                     <SelectValue placeholder="Select year..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {YEAR_LEVELS.map((y) => (
+                    {yearLevels.map((y) => (
                       <SelectItem key={y} value={y}>
                         {y}
                       </SelectItem>
@@ -321,7 +348,7 @@ function RegistrarSubjects() {
                     <SelectValue placeholder="Select semester..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {SEMESTERS.map((s) => (
+                    {semesters.map((s) => (
                       <SelectItem key={s} value={s}>
                         {s}
                       </SelectItem>

@@ -4,7 +4,7 @@ import { BookOpen, Sparkles, RefreshCw, CheckCircle2 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useEnrolledSubjects, enrollStudent as enrollStudentApi } from "@/lib/enrollment-store";
 import { useGrades } from "@/lib/grades-store";
-import { useSubjects, getCurriculumSubjects, YEAR_LEVELS } from "@/lib/subjects-store";
+import { useSubjects, getCurriculumSubjects, YEAR_LEVELS, SEMESTERS } from "@/lib/subjects-store";
 import { useState, useEffect } from "react";
 import { updateStudent } from "@/lib/api";
 
@@ -60,16 +60,16 @@ function StudentEnrollment() {
 
     if (allGradesSubmitted && enrolledSubjects.length > 0) {
       setCanReenroll(true);
-      const currentSemester = enrolledSubjects[0].semester || "1st Semester";
-      const currentYear = enrolledSubjects[0].yearLevel || "1st Year";
+      const currentSemester = enrolledSubjects[0].semester || SEMESTERS[0];
+      const currentYear = enrolledSubjects[0].yearLevel || YEAR_LEVELS[0];
       
       let nextYear = currentYear;
       let nextSem = currentSemester;
 
-      if (currentSemester === "1st Semester") {
-        nextSem = "2nd Semester";
-      } else if (currentSemester === "2nd Semester") {
-        nextSem = "1st Semester";
+      if (currentSemester === SEMESTERS[0]) {
+        nextSem = SEMESTERS[1];
+      } else if (currentSemester === SEMESTERS[1]) {
+        nextSem = SEMESTERS[0];
         const yearIdx = YEAR_LEVELS.indexOf(currentYear);
         if (yearIdx < YEAR_LEVELS.length - 1) {
           nextYear = YEAR_LEVELS[yearIdx + 1];

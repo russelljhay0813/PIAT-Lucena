@@ -6,8 +6,9 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { emailExists, submitRegistration } from "@/lib/registrations-store";
-import { fetchPrograms, type StudentRegistration } from "@/lib/api";
+import { fetchAcademicStructure, fetchPrograms, type StudentRegistration } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { YEAR_LEVELS, SEMESTERS } from "@/lib/subjects-store";
 
 export const Route = createFileRoute("/register")({
   head: () => ({
@@ -19,8 +20,6 @@ export const Route = createFileRoute("/register")({
   component: RegisterPage,
 });
 
-const YEAR_LEVELS = ["1st Year", "2nd Year", "3rd Year", "4th Year"];
-const SEMESTERS = ["1st Semester", "2nd Semester", "Summer"];
 const GENDERS = ["Male", "Female", "Prefer not to say"];
 const CIVIL_STATUS = ["Single", "Married", "Widowed", "Separated"];
 
@@ -69,6 +68,7 @@ function RegisterPage() {
   const [submitted, setSubmitted] = useState(false);
   const [submissionMessage, setSubmissionMessage] = useState<string>("");
   const [programs, setPrograms] = useState<string[]>([]);
+  const [academicStructure, setAcademicStructure] = useState({ academicYears: [] as string[], yearLevels: [] as string[], semesters: [] as string[] });
   const [isLoading, setIsLoading] = useState(false);
   const [studentRecord, setStudentRecord] = useState<StudentRegistration | null>(null);
   const currentYear = new Date().getFullYear();
@@ -97,8 +97,8 @@ function RegisterPage() {
       relationship: "Father",
       parentGuardianContact: "",
       program: user?.program || "",
-      yearLevel: user?.yearLevel || "1st Year",
-      semester: user?.semester || "1st Semester",
+      yearLevel: user?.yearLevel || YEAR_LEVELS[0],
+      semester: user?.semester || SEMESTERS[0],
       academicYear: user?.academicYear || `${currentYear}-${currentYear + 1}`,
     },
   });
@@ -137,8 +137,8 @@ function RegisterPage() {
               relationship: record.parentRelationship || "Father",
               parentGuardianContact: record.parentContact || "",
               program: record.program || user?.program || "",
-              yearLevel: record.yearLevel || user?.yearLevel || "1st Year",
-              semester: record.semester || user?.semester || "1st Semester",
+              yearLevel: record.yearLevel || user?.yearLevel || YEAR_LEVELS[0],
+              semester: record.semester || user?.semester || SEMESTERS[0],
               academicYear: record.academicYear || user?.academicYear || `${currentYear}-${currentYear + 1}`,
             });
           }
@@ -148,9 +148,15 @@ function RegisterPage() {
   }, [user?.studentId]);
 
   useEffect(() => {
-    fetchPrograms()
-      .then(setPrograms)
-      .catch(() => setPrograms([]));
+    Promise.all([fetchPrograms(), fetchAcademicStructure()])
+      .then(([programData, structureData]) => {
+        setPrograms(programData);
+        setAcademicStructure(structureData);
+      })
+      .catch(() => {
+        setPrograms([]);
+        setAcademicStructure({ academicYears: [], yearLevels: [], semesters: [] });
+      });
   }, []);
 
   const watchAll = form.watch();
@@ -404,12 +410,12 @@ function RegisterPage() {
                   </Field>
                   <Field label="Year Level *">
                     <select {...form.register("yearLevel")} className="input" disabled>
-                      {YEAR_LEVELS.map((y) => <option key={y} value={y}>{y}</option>)}
+                      {academicStructure.yearLevels.map((y) => <option key={y} value={y}>{y}</option>)}
                     </select>
                   </Field>
                   <Field label="Semester *">
                     <select {...form.register("semester")} className="input" disabled>
-                      {SEMESTERS.map((s) => <option key={s} value={s}>{s}</option>)}
+                      {academicStructure.semesters.map((s) => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </Field>
                   <Field label="Academic Year *">

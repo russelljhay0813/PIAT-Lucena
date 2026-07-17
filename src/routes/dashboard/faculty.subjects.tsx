@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { motion } from "framer-motion";
 import { BookOpen, Users, Calendar, MapPin, GraduationCap } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
@@ -79,9 +79,8 @@ function FacultyMySubjects() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.05 }}
             >
-              <Link
-                to="/dashboard/faculty/subjects/$subjectId"
-                params={{ subjectId: subject.id }}
+              <a
+                href={`/dashboard/faculty/subject-details?subjectId=${encodeURIComponent(subject.id)}`}
                 className="block rounded-xl border bg-card p-5 shadow-sm hover:bg-muted/30 transition-colors"
               >
                 <div className="flex items-start justify-between mb-3">
@@ -124,7 +123,7 @@ function FacultyMySubjects() {
                   </div>
                   <span className="text-xs text-muted-foreground">{subject.units} units</span>
                 </div>
-              </Link>
+              </a>
             </motion.div>
           ))}
         </div>

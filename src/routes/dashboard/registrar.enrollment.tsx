@@ -3,8 +3,8 @@ import { useState, useEffect } from "react";
 import { Search, CheckCircle, Clock, XCircle, BookPlus, Eye, X } from "lucide-react";
 import { motion } from "framer-motion";
 import { getApprovedStudents, REGISTRATIONS_EVENT, type StudentRegistration } from "@/lib/registrations-store";
-import { fetchUsers, type UserAccount } from "@/lib/api";
-import { useSubjects, getCurriculumSubjects } from "@/lib/subjects-store";
+import { fetchAcademicStructure, type AcademicStructure, fetchUsers, type UserAccount } from "@/lib/api";
+import { useSubjects, getCurriculumSubjects, YEAR_LEVELS, SEMESTERS } from "@/lib/subjects-store";
 import { enrollStudent, type StudentEnrollment, ENROLLMENT_EVENT } from "@/lib/enrollment-store";
 import { fetchEnrollments } from "@/lib/api";
 import { fetchPrograms } from "@/lib/api";
@@ -34,8 +34,9 @@ function RegistrarEnrollment() {
   const [yearFilter, setYearFilter] = useState("All");
   const [showEnrollModal, setShowEnrollModal] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<StudentRegistration | null>(null);
-  const [selectedYearLevel, setSelectedYearLevel] = useState("1st Year");
-  const [selectedSemester, setSelectedSemester] = useState("1st Semester");
+  const [academicStructure, setAcademicStructure] = useState<AcademicStructure>({ academicYears: [], yearLevels: [], semesters: [] });
+  const [selectedYearLevel, setSelectedYearLevel] = useState("");
+  const [selectedSemester, setSelectedSemester] = useState("");
   const [selectedAcademicYear, setSelectedAcademicYear] = useState("");
   const [curriculumSubjects, setCurriculumSubjects] = useState<any[]>([]);
 
@@ -70,7 +71,26 @@ function RegistrarEnrollment() {
       setFacultyUsers(faculty as any);
     };
     loadFaculty();
+
+    fetchAcademicStructure()
+      .then((structure) => setAcademicStructure(structure))
+      .catch(() => setAcademicStructure({ academicYears: [], yearLevels: [], semesters: [] }));
   }, []);
+
+  const yearLevels = academicStructure.yearLevels.length ? academicStructure.yearLevels : YEAR_LEVELS;
+  const semesters = academicStructure.semesters.length ? academicStructure.semesters : SEMESTERS;
+
+  useEffect(() => {
+    if (yearLevels.length && !selectedYearLevel) {
+      setSelectedYearLevel(yearLevels[0]);
+    }
+    if (semesters.length && !selectedSemester) {
+      setSelectedSemester(semesters[0]);
+    }
+    if (academicStructure.academicYears.length && !selectedAcademicYear) {
+      setSelectedAcademicYear(academicStructure.academicYears[0]);
+    }
+  }, [academicStructure.academicYears.length, yearLevels, semesters, selectedYearLevel, selectedSemester, selectedAcademicYear]);
 
   useEffect(() => {
     const loadEnrollments = async () => {
@@ -92,18 +112,26 @@ function RegistrarEnrollment() {
     return matchSearch && matchProgram && matchYear;
   });
 
-  const loadCurriculumForStudent = async (student: StudentRegistration) => {
-    const items = await getCurriculumSubjects(student.program || "", selectedYearLevel, selectedSemester);
+  const loadCurriculumForStudent = async (
+    student: StudentRegistration,
+    yearLevel: string = selectedYearLevel,
+    semester: string = selectedSemester,
+  ) => {
+    const items = await getCurriculumSubjects(student.program || "", yearLevel, semester);
     setCurriculumSubjects(items);
   };
 
   const handleOpenEnroll = (student: StudentRegistration) => {
+    const yearLevel = student.yearLevel || yearLevels[0];
+    const semester = semesters[0];
+    const academicYear = academicStructure.academicYears[0] || `${currentYear}-${currentYear + 1}`;
+
     setSelectedStudent(student);
-    setSelectedYearLevel(student.yearLevel || "1st Year");
-    setSelectedSemester("1st Semester");
-    setSelectedAcademicYear("");
+    setSelectedYearLevel(yearLevel);
+    setSelectedSemester(semester);
+    setSelectedAcademicYear(academicYear);
     setShowEnrollModal(true);
-    loadCurriculumForStudent(student);
+    loadCurriculumForStudent(student, yearLevel, semester);
   };
 
   const handleEnrollStudent = async () => {
@@ -159,7 +187,7 @@ function RegistrarEnrollment() {
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 min-w-[200px]">
+        <div className="relative flex-1 min-w-50">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
             value={search}
@@ -188,7 +216,7 @@ function RegistrarEnrollment() {
           aria-label="Filter by year level"
         >
           <option value="All">All Years</option>
-          {["1st Year", "2nd Year", "3rd Year", "4th Year"].map((y) => (
+          {yearLevels.map((y) => (
             <option key={y} value={y}>
               {y}
             </option>
@@ -321,7 +349,7 @@ function RegistrarEnrollment() {
                     className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
                     aria-label="Select year level"
                   >
-                    {["1st Year", "2nd Year", "3rd Year", "4th Year"].map((y) => (
+                    {yearLevels.map((y) => (
                       <option key={y} value={y}>{y}</option>
                     ))}
                   </select>
@@ -334,7 +362,7 @@ function RegistrarEnrollment() {
                     className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
                     aria-label="Select semester"
                   >
-                    {["1st Semester", "2nd Semester", "Summer"].map((s) => (
+                    {semesters.map((s) => (
                       <option key={s} value={s}>{s}</option>
                     ))}
                   </select>

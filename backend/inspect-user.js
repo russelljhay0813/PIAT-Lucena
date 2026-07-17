@@ -5,8 +5,8 @@ const db = await openDb();
 const id = crypto.randomUUID();
 await new Promise((resolve, reject) => {
   db.run(
-    'INSERT INTO users (id, userId, username, email, password, firstName, lastName, role, status, program, yearLevel, createdAt, temporaryPassword) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [id, `REG-${Date.now()}`, 'registrar', 'registrar@example.com', 'password', 'Maria', 'Santos', 'registrar', 'active', null, null, new Date().toISOString(), 'password'],
+    'INSERT INTO users (id, userId, username, email, password, firstName, lastName, studentId, role, status, program, yearLevel, createdAt, temporaryPassword) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [id, `REG-${Date.now()}`, 'registrar', 'registrar@example.com', 'password', 'Maria', 'Santos', null, 'registrar', 'active', null, null, new Date().toISOString(), 'password'],
     (err) => (err ? reject(err) : resolve()),
   );
 });

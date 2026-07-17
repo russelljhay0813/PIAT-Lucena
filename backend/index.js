@@ -6,6 +6,7 @@ import { openDb, initDb, run, all, get, withTransaction } from "./db.js";
 import { normalizeStudentPayload, normalizeUserPayload } from "./schema-utils.js";
 import { resolveProgramIdForStudent } from "./reenrollment-utils.js";
 import { resolveAutoApprovalStatus, validateRegistrationPayload } from "./registration-workflow.js";
+import { resolveRequestIdentity } from "./auth-utils.js";
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -27,26 +28,7 @@ function generateJwtToken(user) {
 }
 
 function getRequestIdentity(req) {
-  const authHeader = req.get("Authorization") || "";
-  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
-  if (token) {
-    try {
-      const payload = jwt.verify(token, JWT_SECRET);
-      return {
-        role: String(payload.role || "").toLowerCase(),
-        userId: String(payload.id || ""),
-        studentId: String(payload.studentId || ""),
-      };
-    } catch (error) {
-      // invalid token falls back to header-based identity
-    }
-  }
-
-  return {
-    role: String(req.get("x-user-role") || "").toLowerCase(),
-    userId: String(req.get("x-user-id") || ""),
-    studentId: String(req.get("x-user-student-id") || ""),
-  };
+  return resolveRequestIdentity(req, JWT_SECRET);
 }
 
 app.use(cors());
@@ -234,8 +216,39 @@ async function syncStudentEnrollment(student) {
   if (!student?.studentId || !student.program || !student.yearLevel || !student.semester) {
     return [];
   }
+  const academicYear = student.academicYear || `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`;
+  const semester = student.semester;
+  // Find matching subjects for the student's program/year/semester
+  const subjects = await all(
+    db,
+    `SELECT id FROM subjects WHERE program = ? AND yearLevel = ? AND semester = ?`,
+    [student.program, student.yearLevel, semester],
+  );
 
-  return [];
+  if (!subjects || subjects.length === 0) return [];
+
+  const createdEnrollments = [];
+  for (const s of subjects) {
+    const existing = await get(db, "SELECT * FROM enrollments WHERE studentId = ? AND subjectId = ? AND academicYear = ? AND semester = ?", [student.studentId, s.id, academicYear, semester]);
+    if (existing) continue;
+    const enrollment = {
+      id: crypto.randomUUID(),
+      studentId: String(student.studentId),
+      subjectId: String(s.id),
+      academicYear,
+      semester,
+      enrolledAt: new Date().toISOString(),
+      status: "enrolled",
+    };
+    await run(
+      db,
+      `INSERT INTO enrollments (id, studentId, subjectId, academicYear, semester, enrolledAt, status) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [enrollment.id, enrollment.studentId, enrollment.subjectId, enrollment.academicYear, enrollment.semester, enrollment.enrolledAt, enrollment.status],
+    );
+    createdEnrollments.push(enrollment);
+  }
+
+  return createdEnrollments;
 }
 
 app.get("/api/subjects", async (req, res) => {
@@ -665,11 +678,20 @@ app.post("/api/students/login", applyRateLimit, (req, res, next) => validateRequ
   }
   await createActivityLog(student.studentId, student.firstName || "Student", "Successful student login", "Student signed in", "student");
   const updatedStudent = await get(db, "SELECT * FROM students WHERE id = ?", [student.id]);
-  res.json(sanitizeStudentRecord(updatedStudent));
+  const token = generateJwtToken(updatedStudent);
+  res.json({ ...sanitizeStudentRecord(updatedStudent), token });
 });
 
-app.get("/api/grades", requireRole("admin", "faculty", "registrar"), async (req, res) => {
-  const { subjectId, studentId } = req.query;
+app.get("/api/grades", async (req, res) => {
+  const identity = getRequestIdentity(req);
+  const { subjectId } = req.query;
+  const requestedStudentId = req.query.studentId ? String(req.query.studentId) : null;
+  const isSelf = identity.role === "student" && (!requestedStudentId || requestedStudentId === identity.studentId || requestedStudentId === identity.userId);
+  if (!["admin", "faculty", "registrar"].includes(identity.role) && !isSelf) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+
+  const studentId = requestedStudentId || (identity.role === "student" ? identity.studentId : null);
   const conditions = [];
   const params = [];
   if (subjectId) {
@@ -880,8 +902,8 @@ app.get("/api/activity-logs", requireRole("admin"), async (_req, res) => {
 app.get("/api/users", requireRole("admin", "registrar"), async (req, res) => {
   const role = req.query.role ? String(req.query.role) : null;
   const query = role
-    ? { sql: "SELECT id, userId, username, firstName, middleName, lastName, email, role, status, program, yearLevel, createdAt, temporaryPassword FROM users WHERE role = ? ORDER BY lastName, firstName", params: [role] }
-    : { sql: "SELECT id, userId, username, firstName, middleName, lastName, email, role, status, program, yearLevel, createdAt, temporaryPassword FROM users ORDER BY lastName, firstName", params: [] };
+    ? { sql: "SELECT id, userId, username, firstName, middleName, lastName, email, studentId, role, status, program, yearLevel, createdAt, temporaryPassword FROM users WHERE role = ? ORDER BY lastName, firstName", params: [role] }
+    : { sql: "SELECT id, userId, username, firstName, middleName, lastName, email, studentId, role, status, program, yearLevel, createdAt, temporaryPassword FROM users ORDER BY lastName, firstName", params: [] };
   const rows = await all(db, query.sql, query.params);
   res.json(rows.map(sanitizeUserRecord));
 });
@@ -921,9 +943,9 @@ app.post("/api/users", requireRole("admin"), (req, res, next) => validateRequire
 
   await run(
     db,
-    `INSERT INTO users (id, userId, username, email, password, firstName, middleName, lastName, role, status, program, yearLevel, createdAt, temporaryPassword)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [user.id, user.userId, user.username, user.email, user.password, user.firstName, user.middleName, user.lastName, user.role, user.status, user.program, user.yearLevel, user.createdAt, user.temporaryPassword],
+    `INSERT INTO users (id, userId, username, email, password, firstName, middleName, lastName, studentId, role, status, program, yearLevel, createdAt, temporaryPassword)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [user.id, user.userId, user.username, user.email, user.password, user.firstName, user.middleName, user.lastName, null, user.role, user.status, user.program, user.yearLevel, user.createdAt, user.temporaryPassword],
   );
 
   await createActivityLog(req.body.actorId || "system", req.body.actorName || "Admin", role === "student" ? "Created student account" : "Created staff account", `${user.firstName} ${user.lastName} (${user.role})`, user.role);
@@ -966,6 +988,8 @@ app.post("/api/users", requireRole("admin"), (req, res, next) => validateRequire
         null,
       ],
     );
+    // Link the created student record to the users table
+    await run(db, "UPDATE users SET studentId = ? WHERE id = ?", [student.studentId, user.id]);
   }
 
   res.status(201).json(sanitizeUserRecord(user));
@@ -977,7 +1001,7 @@ app.patch("/api/users/:id/status", requireRole("admin"), async (req, res) => {
   const existing = await get(db, "SELECT * FROM users WHERE id = ?", [id]);
   if (!existing) return res.status(404).json({ error: "User not found" });
   await run(db, "UPDATE users SET status = ? WHERE id = ?", [status || "inactive", id]);
-  const updated = await get(db, "SELECT id, userId, username, firstName, middleName, lastName, email, role, status, program, yearLevel, createdAt, temporaryPassword FROM users WHERE id = ?", [id]);
+  const updated = await get(db, "SELECT id, userId, username, firstName, middleName, lastName, email, studentId, role, status, program, yearLevel, createdAt, temporaryPassword FROM users WHERE id = ?", [id]);
   res.json(sanitizeUserRecord(updated));
 });
 
@@ -999,7 +1023,7 @@ app.put("/api/users/:id", requireRole("admin"), async (req, res) => {
     `UPDATE users SET firstName = ?, lastName = ?, middleName = ?, email = ?, program = ?, yearLevel = ? WHERE id = ?`,
     [updates.firstName, updates.lastName, updates.middleName, updates.email, updates.program, updates.yearLevel, id]
   );
-  const updated = await get(db, "SELECT id, userId, username, firstName, middleName, lastName, email, role, status, program, yearLevel, createdAt, temporaryPassword FROM users WHERE id = ?", [id]);
+  const updated = await get(db, "SELECT id, userId, username, firstName, middleName, lastName, email, studentId, role, status, program, yearLevel, createdAt, temporaryPassword FROM users WHERE id = ?", [id]);
   res.json(sanitizeUserRecord(updated));
 });
 
@@ -1017,7 +1041,7 @@ app.patch("/api/users/:id/password", requireSelfOrRole("id", "admin"), (req, res
 
 app.post("/api/users/login", applyRateLimit, (req, res, next) => validateRequiredFields(req, res, next, ["email", "password"]), async (req, res) => {
   const { email, password } = req.body;
-  const user = await get(db, "SELECT id, userId, username, firstName, middleName, lastName, email, role, status, program, yearLevel, createdAt, temporaryPassword, password, firstLoginAt, lastLoginAt FROM users WHERE LOWER(email) = LOWER(?)", [email]);
+  const user = await get(db, "SELECT id, userId, username, firstName, middleName, lastName, email, studentId, role, status, program, yearLevel, createdAt, temporaryPassword, password, firstLoginAt, lastLoginAt FROM users WHERE LOWER(email) = LOWER(?)", [email]);
   if (!user || !verifyPassword(password, user.password)) {
     await createActivityLog("system", "system", "Failed staff login", String(email || "unknown"), "system");
     return res.status(401).json({ error: "Invalid credentials" });
@@ -1034,13 +1058,13 @@ app.post("/api/users/login", applyRateLimit, (req, res, next) => validateRequire
     await createNotificationRecord(user.id, "schedule", "Welcome to PIAT", "Welcome! Your account is ready to use. Please sign in with your temporary password and update it when prompted.", user.id);
   }
   await createActivityLog(user.id, `${user.firstName} ${user.lastName}`.trim(), "Successful staff login", "User signed in", user.role);
-  const updatedUser = await get(db, "SELECT id, userId, username, firstName, middleName, lastName, email, role, status, program, yearLevel, semester, academicYear, createdAt, temporaryPassword, firstLoginAt, lastLoginAt FROM users WHERE id = ?", [user.id]);
+  const updatedUser = await get(db, "SELECT id, userId, username, firstName, middleName, lastName, email, studentId, role, status, program, yearLevel, semester, academicYear, createdAt, temporaryPassword, firstLoginAt, lastLoginAt FROM users WHERE id = ?", [user.id]);
   const token = generateJwtToken(updatedUser);
   res.json({ ...sanitizeUserRecord(updatedUser), token });
 });
 
 app.get("/api/users/profile", requireRole("admin", "faculty", "registrar", "student"), async (req, res) => {
-  const user = await get(db, "SELECT id, userId, username, firstName, middleName, lastName, email, role, status, program, yearLevel, semester, academicYear, createdAt, temporaryPassword, firstLoginAt, lastLoginAt FROM users WHERE id = ?", [req.userContext.userId]);
+  const user = await get(db, "SELECT id, userId, username, firstName, middleName, lastName, email, studentId, role, status, program, yearLevel, semester, academicYear, createdAt, temporaryPassword, firstLoginAt, lastLoginAt FROM users WHERE id = ?", [req.userContext.userId]);
   if (!user) return res.status(404).json({ error: "User not found" });
   res.json(sanitizeUserRecord(user));
 });
@@ -1163,7 +1187,8 @@ app.get("/api/enrollments", requireRole("admin", "registrar", "student"), async 
   const studentId = req.query.studentId ? String(req.query.studentId) : null;
   const academicYear = req.query.academicYear ? String(req.query.academicYear) : null;
   const semester = req.query.semester ? String(req.query.semester) : null;
-  const conditions = ["status = 'enrolled'"];
+  const status = req.query.status ? String(req.query.status) : null;
+  const conditions = [];
   const params = [];
 
   if (studentId) {
@@ -1178,9 +1203,14 @@ app.get("/api/enrollments", requireRole("admin", "registrar", "student"), async 
     conditions.push("semester = ?");
     params.push(semester);
   }
+  if (status) {
+    conditions.push("status = ?");
+    params.push(status);
+  }
 
+  const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
   const query = {
-    sql: `SELECT * FROM enrollments WHERE ${conditions.join(" AND ")} ORDER BY enrolledAt DESC`,
+    sql: `SELECT * FROM enrollments ${whereClause} ORDER BY academicYear DESC, CASE semester WHEN '1st Semester' THEN 1 WHEN '2nd Semester' THEN 2 WHEN 'Summer' THEN 3 ELSE 4 END, enrolledAt DESC`,
     params,
   };
   const rows = await all(db, query.sql, query.params);
@@ -1197,6 +1227,43 @@ app.post("/api/enrollments", requireRole("admin", "registrar"), (req, res, next)
 app.get("/api/programs", async (_req, res) => {
   const rows = await all(db, "SELECT name FROM programs WHERE status = 'active' ORDER BY name");
   res.json(rows.map((r) => r.name));
+});
+
+app.get("/api/meta/academic-structure", async (_req, res) => {
+  const academicYearRows = await all(db, "SELECT DISTINCT academicYear FROM subjects WHERE academicYear IS NOT NULL ORDER BY academicYear");
+  const yearLevelRows = await all(
+    db,
+    `SELECT DISTINCT yearLevel FROM curriculum ORDER BY
+       CASE yearLevel
+         WHEN '1st Year' THEN 1
+         WHEN '2nd Year' THEN 2
+         WHEN '3rd Year' THEN 3
+         WHEN '4th Year' THEN 4
+         ELSE 5
+       END, yearLevel`,
+  );
+  const semesterRows = await all(
+    db,
+    `SELECT DISTINCT semester FROM curriculum ORDER BY
+       CASE semester
+         WHEN '1st Semester' THEN 1
+         WHEN '2nd Semester' THEN 2
+         WHEN 'Summer' THEN 3
+         ELSE 4
+       END, semester`,
+  );
+
+  const academicYears = academicYearRows.length
+    ? academicYearRows.map((row) => row.academicYear)
+    : ["2025-2026", "2026-2027", "2027-2028", "2028-2029"];
+  const yearLevels = yearLevelRows.length
+    ? yearLevelRows.map((row) => row.yearLevel)
+    : ["1st Year", "2nd Year", "3rd Year", "4th Year"];
+  const semesters = semesterRows.length
+    ? semesterRows.map((row) => row.semester)
+    : ["1st Semester", "2nd Semester"];
+
+  res.json({ academicYears, yearLevels, semesters });
 });
 
 app.get("/api/programs/detailed", async (_req, res) => {

@@ -1,17 +1,32 @@
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 const REQUEST_TIMEOUT = 15000;
 
-async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
+async function request<T>(path: string, opts: RequestInit = {}, authToken?: string): Promise<T> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
   try {
     const storedSession = typeof window !== "undefined" ? window.localStorage.getItem("piat-auth-user") : null;
     const authUser = storedSession ? JSON.parse(storedSession) : null;
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      ...(opts.headers ?? {}),
-    };
+    // Build HeadersInit safely from possible opts.headers variants
+    let headers: HeadersInit = { "Content-Type": "application/json" };
+    if (opts.headers) {
+      if (opts.headers instanceof Headers) {
+        opts.headers.forEach((value, key) => {
+          (headers as Record<string, string>)[key] = value;
+        });
+      } else if (Array.isArray(opts.headers)) {
+        for (const [key, value] of opts.headers) {
+          (headers as Record<string, string>)[key] = value;
+        }
+      } else {
+        headers = { ...(headers as Record<string, string>), ...(opts.headers as Record<string, string>) };
+      }
+    }
 
+    const token = authToken ?? authUser?.token;
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
     if (authUser?.role) {
       headers["x-user-role"] = authUser.role;
     }
@@ -187,8 +202,8 @@ export async function fetchStudents(status?: string) {
   return request<StudentRegistration[]>(`/api/students${query}`);
 }
 
-export async function fetchStudentById(studentId: string) {
-  return request<StudentRegistration>(`/api/students/${encodeURIComponent(studentId)}`);
+export async function fetchStudentById(studentId: string, authToken?: string) {
+  return request<StudentRegistration>(`/api/students/${encodeURIComponent(studentId)}`, {}, authToken);
 }
 
 export async function createStudent(student: StudentRegistrationPayload) {
@@ -205,8 +220,10 @@ export async function updateStudent(studentId: string, patch: Partial<StudentReg
   });
 }
 
+export type StudentLoginResponse = StudentRegistration & { token?: string };
+
 export async function loginStudent(email: string, password: string) {
-  return request<StudentRegistration>("/api/students/login", {
+  return request<StudentLoginResponse>("/api/students/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
@@ -387,6 +404,7 @@ export interface UserAccount {
   createdAt: string;
   temporaryPassword?: string;
   studentId?: string;
+  token?: string;
 }
 
 export interface ActivityLogEntry {
@@ -462,6 +480,16 @@ export async function createEnrollments(data: {
 
 export async function fetchPrograms() {
   return request<string[]>("/api/programs");
+}
+
+export interface AcademicStructure {
+  academicYears: string[];
+  yearLevels: string[];
+  semesters: string[];
+}
+
+export async function fetchAcademicStructure() {
+  return request<AcademicStructure>("/api/meta/academic-structure");
 }
 
 export interface Program {
@@ -589,5 +617,33 @@ export async function createAnnouncement(announcement: { title: string; body: st
 export async function deleteAnnouncementApi(id: string) {
   return request<void>(`/api/announcements?id=${encodeURIComponent(id)}`, {
     method: "DELETE",
+  });
+}
+
+// Clearance / finance API stubs used by clearance-store
+export async function fetchAccounts() {
+  return request<any[]>("/api/finance/accounts");
+}
+
+export async function fetchClearances() {
+  return request<any[]>("/api/clearances");
+}
+
+export async function issueClearance(accountId: string, issuedBy: string, semester: string) {
+  return request<any>(`/api/clearances/issue`, {
+    method: "POST",
+    body: JSON.stringify({ accountId, issuedBy, semester }),
+  });
+}
+
+export async function markAccountPaid(accountId: string) {
+  return request<any>(`/api/finance/accounts/${encodeURIComponent(accountId)}/mark-paid`, {
+    method: "POST",
+  });
+}
+
+export async function revokeClearance(id: string) {
+  return request<any>(`/api/clearances/${encodeURIComponent(id)}/revoke`, {
+    method: "POST",
   });
 }

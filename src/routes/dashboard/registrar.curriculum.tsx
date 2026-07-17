@@ -2,7 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Plus, Pencil, Trash2, X } from "lucide-react";
 import { motion } from "framer-motion";
-import { fetchProgramsDetailed, createProgram, updateProgramApi, deleteProgramApi, fetchCurriculum, createCurriculumItem, deleteCurriculumItem } from "@/lib/api";
+import { fetchAcademicStructure, type AcademicStructure, fetchProgramsDetailed, createProgram, updateProgramApi, deleteProgramApi, fetchCurriculum, createCurriculumItem, deleteCurriculumItem } from "@/lib/api";
+import { YEAR_LEVELS, SEMESTERS } from "@/lib/subjects-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,11 +31,12 @@ export const Route = createFileRoute("/dashboard/registrar/curriculum")({
 function RegistrarCurriculum() {
   const [programs, setPrograms] = useState<any[]>([]);
   const [curriculum, setCurriculum] = useState<any[]>([]);
+  const [academicStructure, setAcademicStructure] = useState<AcademicStructure>({ academicYears: [], yearLevels: [], semesters: [] });
   const [showProgramModal, setShowProgramModal] = useState(false);
   const [showSubjectModal, setShowSubjectModal] = useState(false);
   const [selectedProgram, setSelectedProgram] = useState<any | null>(null);
   const [programForm, setProgramForm] = useState({ name: "", description: "" });
-  const [subjectForm, setSubjectForm] = useState({ yearLevel: "1st Year", semester: "1st Semester", subjectCode: "", subjectTitle: "", units: 3 });
+  const [subjectForm, setSubjectForm] = useState({ yearLevel: "", semester: "", subjectCode: "", subjectTitle: "", units: 3 });
 
   const loadPrograms = async () => {
     try {
@@ -57,7 +59,19 @@ function RegistrarCurriculum() {
   useEffect(() => {
     loadPrograms();
     loadCurriculum();
+    fetchAcademicStructure()
+      .then((structure) => setAcademicStructure(structure))
+      .catch(() => setAcademicStructure({ academicYears: [], yearLevels: [], semesters: [] }));
   }, []);
+
+  useEffect(() => {
+    if (academicStructure.yearLevels.length && !subjectForm.yearLevel) {
+      setSubjectForm((prev) => ({ ...prev, yearLevel: academicStructure.yearLevels[0] }));
+    }
+    if (academicStructure.semesters.length && !subjectForm.semester) {
+      setSubjectForm((prev) => ({ ...prev, semester: academicStructure.semesters[0] }));
+    }
+  }, [academicStructure, subjectForm.yearLevel, subjectForm.semester]);
 
   const handleCreateProgram = async () => {
     if (!programForm.name) return toast.error("Program name is required");
@@ -104,15 +118,15 @@ function RegistrarCurriculum() {
     try {
       await createCurriculumItem({
         programId: selectedProgram.id,
-        yearLevel: subjectForm.yearLevel,
-        semester: subjectForm.semester,
+        yearLevel: subjectForm.yearLevel || yearLevels[0],
+        semester: subjectForm.semester || semesters[0],
         subjectCode: subjectForm.subjectCode,
         subjectTitle: subjectForm.subjectTitle,
         units: Number(subjectForm.units),
       });
       toast.success("Subject added to curriculum");
       setShowSubjectModal(false);
-      setSubjectForm({ yearLevel: "1st Year", semester: "1st Semester", subjectCode: "", subjectTitle: "", units: 3 });
+      setSubjectForm({ yearLevel: yearLevels[0], semester: semesters[0], subjectCode: "", subjectTitle: "", units: 3 });
       loadCurriculum();
     } catch (err: any) {
       toast.error(err?.message || "Failed to add subject");
@@ -136,8 +150,12 @@ function RegistrarCurriculum() {
     setShowProgramModal(true);
   };
 
-  const yearLevels = ["1st Year", "2nd Year", "3rd Year", "4th Year"];
-  const semesters = ["1st Semester", "2nd Semester", "Summer"];
+  const yearLevels = academicStructure.yearLevels.length
+    ? academicStructure.yearLevels
+    : YEAR_LEVELS;
+  const semesters = academicStructure.semesters.length
+    ? academicStructure.semesters
+    : SEMESTERS;
 
   return (
     <div className="space-y-6">

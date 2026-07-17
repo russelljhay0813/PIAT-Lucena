@@ -82,7 +82,17 @@ function AnnouncementsPage() {
   const loadAnnouncements = async () => {
     try {
       const data = await fetchAnnouncements();
-      setItems(Array.isArray(data) ? data : []);
+      setItems(
+        Array.isArray(data)
+          ? data.map((d: any) => ({
+              ...d,
+              category: d.category ?? "general",
+              audience: d.audience ?? "all",
+              authorName: d.authorName ?? "",
+              authorRole: d.authorRole ?? "",
+            }))
+          : [],
+      );
     } catch {
       setItems([]);
     }

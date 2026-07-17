@@ -108,6 +108,7 @@ export async function initDb(db) {
       firstName TEXT NOT NULL,
       lastName TEXT NOT NULL,
       middleName TEXT,
+      studentId TEXT,
       role TEXT NOT NULL CHECK(role IN ('admin', 'faculty', 'registrar', 'student')),
       status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'inactive')),
       program TEXT,
@@ -125,6 +126,7 @@ export async function initDb(db) {
   await addColumnIfMissing(db, "users", "academicYear", "TEXT");
   await addColumnIfMissing(db, "users", "firstLoginAt", "TEXT");
   await addColumnIfMissing(db, "users", "lastLoginAt", "TEXT");
+  await addColumnIfMissing(db, "users", "studentId", "TEXT");
 
   await run(
     db,
@@ -555,16 +557,44 @@ await run(
     }
   }
 
-  const existingSubjects = await all(db, "SELECT * FROM subjects LIMIT 1");
-  if (existingSubjects.length === 0) {
-    const curriculumRows = await all(
-      db,
-      `SELECT c.yearLevel, c.semester, c.subjectCode, c.subjectTitle, c.units, p.name AS programName
-       FROM curriculum c
-       JOIN programs p ON p.id = c.programId`,
-    );
+  const supportedAcademicYears = ["2025-2026", "2026-2027", "2027-2028", "2028-2029"];
+  const curriculumRows = await all(
+    db,
+    `SELECT c.yearLevel, c.semester, c.subjectCode, c.subjectTitle, c.units, p.name AS programName
+     FROM curriculum c
+     JOIN programs p ON p.id = c.programId`,
+  );
 
+  const existingSubjects = await all(db, "SELECT id, code, program, yearLevel, semester, academicYear FROM subjects");
+  const makeOfferingKey = (row, academicYear) => `${row.programName || row.program || ""}|${row.yearLevel}|${row.semester}|${row.subjectCode}|${academicYear}`;
+
+  for (const academicYear of supportedAcademicYears) {
     for (const row of curriculumRows) {
+      const key = makeOfferingKey(row, academicYear);
+      const existingMatch = existingSubjects.find((subject) => {
+        if (subject.academicYear && subject.academicYear !== academicYear) return false;
+        return subject.code === row.subjectCode && subject.program === row.programName && subject.yearLevel === row.yearLevel && subject.semester === row.semester;
+      });
+
+      if (existingMatch && academicYear === "2025-2026" && existingMatch.academicYear == null) {
+        await run(
+          db,
+          "UPDATE subjects SET academicYear = ? WHERE id = ?",
+          [academicYear, existingMatch.id],
+        );
+        continue;
+      }
+
+      const matchingAcademicYearRow = existingSubjects.find((subject) =>
+        subject.code === row.subjectCode
+        && subject.program === row.programName
+        && subject.yearLevel === row.yearLevel
+        && subject.semester === row.semester
+        && subject.academicYear === academicYear
+      );
+
+      if (matchingAcademicYearRow) continue;
+
       await run(
         db,
         `INSERT INTO subjects (id, code, title, units, schedule, room, instructor, program, yearLevel, semester, facultyId, academicYear, addedAt)
@@ -581,7 +611,7 @@ await run(
           row.yearLevel,
           row.semester,
           null,
-          null,
+          academicYear,
           Date.now(),
         ],
       );
@@ -605,8 +635,8 @@ await run(
     };
     await run(
       db,
-      `INSERT INTO users (id, userId, username, email, password, firstName, lastName, role, status, program, yearLevel, createdAt, temporaryPassword) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [adminUser.id, adminUser.userId, adminUser.username, adminUser.email, adminUser.password, adminUser.firstName, adminUser.lastName, adminUser.role, adminUser.status, null, null, adminUser.createdAt, adminUser.password],
+      `INSERT INTO users (id, userId, username, email, password, firstName, lastName, studentId, role, status, program, yearLevel, createdAt, temporaryPassword) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [adminUser.id, adminUser.userId, adminUser.username, adminUser.email, adminUser.password, adminUser.firstName, adminUser.lastName, null, adminUser.role, adminUser.status, null, null, adminUser.createdAt, adminUser.password],
     );
   }
 
@@ -626,8 +656,8 @@ await run(
     };
     await run(
       db,
-      `INSERT INTO users (id, userId, username, email, password, firstName, lastName, role, status, program, yearLevel, createdAt, temporaryPassword) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [registrarUser.id, registrarUser.userId, registrarUser.username, registrarUser.email, registrarUser.password, registrarUser.firstName, registrarUser.lastName, registrarUser.role, registrarUser.status, null, null, registrarUser.createdAt, registrarUser.password],
+      `INSERT INTO users (id, userId, username, email, password, firstName, lastName, studentId, role, status, program, yearLevel, createdAt, temporaryPassword) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [registrarUser.id, registrarUser.userId, registrarUser.username, registrarUser.email, registrarUser.password, registrarUser.firstName, registrarUser.lastName, null, registrarUser.role, registrarUser.status, null, null, registrarUser.createdAt, registrarUser.password],
     );
   }
 
@@ -647,8 +677,8 @@ await run(
     };
     await run(
       db,
-      `INSERT INTO users (id, userId, username, email, password, firstName, lastName, role, status, program, yearLevel, createdAt, temporaryPassword) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [facultyUser.id, facultyUser.userId, facultyUser.username, facultyUser.email, facultyUser.password, facultyUser.firstName, facultyUser.lastName, facultyUser.role, facultyUser.status, "BSIT", "1st Year", facultyUser.createdAt, facultyUser.password],
+      `INSERT INTO users (id, userId, username, email, password, firstName, lastName, studentId, role, status, program, yearLevel, createdAt, temporaryPassword) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [facultyUser.id, facultyUser.userId, facultyUser.username, facultyUser.email, facultyUser.password, facultyUser.firstName, facultyUser.lastName, null, facultyUser.role, facultyUser.status, "BSIT", "1st Year", facultyUser.createdAt, facultyUser.password],
     );
   }
 
@@ -668,8 +698,8 @@ await run(
     };
     await run(
       db,
-      `INSERT INTO users (id, userId, username, email, password, firstName, lastName, role, status, program, yearLevel, createdAt, temporaryPassword) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [studentUser.id, studentUser.userId, studentUser.username, studentUser.email, studentUser.password, studentUser.firstName, studentUser.lastName, studentUser.role, studentUser.status, "BSIT", "1st Year", studentUser.createdAt, studentUser.password],
+      `INSERT INTO users (id, userId, username, email, password, firstName, lastName, studentId, role, status, program, yearLevel, createdAt, temporaryPassword) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [studentUser.id, studentUser.userId, studentUser.username, studentUser.email, studentUser.password, studentUser.firstName, studentUser.lastName, null, studentUser.role, studentUser.status, "BSIT", "1st Year", studentUser.createdAt, studentUser.password],
     );
   }
 }

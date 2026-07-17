@@ -15,7 +15,7 @@ export const Route = createFileRoute("/dashboard/faculty/subject-details")({
 
 function SubjectDetailsPage() {
   const { user } = useAuth();
-  const subjectId = Route.useParams().subjectId;
+  const subjectId = (Route.useParams() as any).subjectId as string | undefined;
   const [subject, setSubject] = useState<Subject | null>(null);
   const [enrolledStudents, setEnrolledStudents] = useState<StudentRegistration[]>([]);
   const [loading, setLoading] = useState(true);
