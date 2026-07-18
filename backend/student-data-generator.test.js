@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildStudentSeedData, PIAT_PROGRAMS } from "./student-data-generator.js";
+import { buildStudentSeedData, PIAT_PROGRAMS, buildAcademicHistoryPlan, generateGradeBreakdown } from "./student-data-generator.js";
 
 test("buildStudentSeedData creates 900 students across all programs, year levels, and sections", () => {
   const students = buildStudentSeedData({ academicYear: "2026-2027", activeSemester: "1st Semester" });
@@ -38,4 +38,24 @@ test("buildStudentSeedData creates 900 students across all programs, year levels
 
   const phones = students.map((student) => student.contactNumber);
   assert.equal(new Set(phones).size, phones.length, "student phone numbers should be unique");
+});
+
+test("buildAcademicHistoryPlan includes prior year levels and the current semester", () => {
+  const plan = buildAcademicHistoryPlan({ yearLevel: "4th Year", semester: "2nd Semester", academicYear: "2026-2027" });
+
+  assert.equal(plan.length, 8, "expected complete history through the current semester");
+  assert.deepEqual(
+    plan.slice(0, 2).map((entry) => `${entry.yearLevel}:${entry.semester}`),
+    ["1st Year:1st Semester", "1st Year:2nd Semester"],
+    "expected the first semesters to be the first-year sequence",
+  );
+  assert.equal(plan[plan.length - 1].yearLevel, "4th Year", "expected the current year level to appear in the plan");
+});
+
+test("generateGradeBreakdown creates weighted period grades and component rows", () => {
+  const breakdown = generateGradeBreakdown({ period: "final", studentSeed: 3 });
+
+  assert.ok(breakdown.overall.grade >= 60 && breakdown.overall.grade <= 100, "expected a realistic overall grade");
+  assert.equal(breakdown.components.length, 5, "expected one row for each grade component plus the overall row");
+  assert.equal(breakdown.overall.period, "final", "expected the overall grade to be attached to the requested period");
 });

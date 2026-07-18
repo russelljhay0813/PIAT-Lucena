@@ -13,6 +13,7 @@ export const PIAT_PROGRAMS = [
 const YEAR_LEVELS = ["1st Year", "2nd Year", "3rd Year", "4th Year"];
 const SECTIONS = ["Section A", "Section B", "Section C"];
 const ACTIVE_SEMESTERS = ["1st Semester", "2nd Semester"];
+const YEAR_LEVEL_INDEX = Object.fromEntries(YEAR_LEVELS.map((yearLevel, index) => [yearLevel, index + 1]));
 
 const FIRST_NAMES = [
   "Aaliyah", "Abigail", "Adrian", "Aira", "Aldrin", "Alyssa", "Andrea", "Angel", "Angelo", "Aria",
@@ -64,6 +65,69 @@ const BARANGAYS = [
 
 function pick(list) {
   return list[Math.floor(Math.random() * list.length)];
+}
+
+function seededValue(seed, min, max) {
+  const safeSeed = Number(seed) || 0;
+  const normalized = Math.sin(safeSeed * 12.9898) * 43758.5453;
+  const fractional = normalized - Math.floor(normalized);
+  return min + fractional * (max - min);
+}
+
+function deriveAcademicYearForPlan(currentAcademicYear, currentYearIndex, targetYearIndex) {
+  const startYear = Number(String(currentAcademicYear || "").split("-")[0]);
+  const targetStart = Number.isFinite(startYear) ? startYear - (currentYearIndex - targetYearIndex) : new Date().getFullYear() - (currentYearIndex - targetYearIndex);
+  const targetEnd = targetStart + 1;
+  return `${targetStart}-${targetEnd}`;
+}
+
+export function buildAcademicHistoryPlan({ yearLevel = "1st Year", semester = "1st Semester", academicYear = "2026-2027" } = {}) {
+  const currentYearIndex = YEAR_LEVEL_INDEX[yearLevel] || 1;
+  const currentSemester = ACTIVE_SEMESTERS.includes(semester) ? semester : "1st Semester";
+  const plan = [];
+
+  for (let yearIndex = 1; yearIndex <= currentYearIndex; yearIndex += 1) {
+    const yearLevelName = YEAR_LEVELS[yearIndex - 1];
+    const isCurrentYear = yearIndex === currentYearIndex;
+    const semestersForYear = yearIndex < currentYearIndex
+      ? ACTIVE_SEMESTERS
+      : currentSemester === "2nd Semester"
+        ? ACTIVE_SEMESTERS
+        : [currentSemester];
+
+    for (const term of semestersForYear) {
+      plan.push({
+        yearLevel: yearLevelName,
+        semester: term,
+        academicYear: deriveAcademicYearForPlan(academicYear, currentYearIndex, yearIndex),
+      });
+    }
+  }
+
+  return plan;
+}
+
+export function generateGradeBreakdown({ period = "final", studentSeed = 1 } = {}) {
+  const base = Math.max(65, Math.min(95, seededValue(studentSeed * 11, 72, 94)));
+  const quiz = Number(Math.max(60, Math.min(100, base - 4 + seededValue(studentSeed + 1, -2, 3))).toFixed(2));
+  const activities = Number(Math.max(60, Math.min(100, base - 2 + seededValue(studentSeed + 2, -3, 3))).toFixed(2));
+  const assignments = Number(Math.max(60, Math.min(100, base + seededValue(studentSeed + 3, -2, 3))).toFixed(2));
+  const exam = Number(Math.max(60, Math.min(100, base + 5 + seededValue(studentSeed + 4, -4, 4))).toFixed(2));
+  const periodGrade = Number(((quiz * 0.2) + (activities * 0.2) + (assignments * 0.2) + (exam * 0.4)).toFixed(2));
+
+  const components = [
+    { type: "quiz", component: "quiz", grade: quiz },
+    { type: "activity", component: "activities", grade: activities },
+    { type: "activity", component: "assignments", grade: assignments },
+    { type: "exam", component: "exam", grade: exam },
+    { type: "overall", component: period, grade: periodGrade },
+  ];
+
+  return {
+    period,
+    components,
+    overall: { period, grade: periodGrade, type: "overall" },
+  };
 }
 
 function makeStudentId(index, academicYear) {
@@ -180,13 +244,128 @@ export function buildStudentSeedData({ academicYear = "2026-2027", activeSemeste
   return students;
 }
 
+async function seedAcademicHistoryForStudent(db, student) {
+  if (!student?.studentId || !student.program || !student.yearLevel) {
+    return [];
+  }
+
+  const plan = buildAcademicHistoryPlan({
+    yearLevel: student.yearLevel,
+    semester: student.semester || "1st Semester",
+    academicYear: student.academicYear || "2026-2027",
+  });
+
+  const created = [];
+  for (const entry of plan) {
+    const offerings = await all(
+      db,
+      `SELECT id, code, title, units FROM subjects WHERE program = ? AND yearLevel = ? AND semester = ? AND academicYear = ? ORDER BY code`,
+      [student.program, entry.yearLevel, entry.semester, entry.academicYear],
+    );
+
+    const fallbackOfferings = offerings.length > 0
+      ? offerings
+      : await all(
+          db,
+          `SELECT id, code, title, units FROM subjects WHERE program = ? AND yearLevel = ? AND semester = ? ORDER BY code`,
+          [student.program, entry.yearLevel, entry.semester],
+        );
+
+    if (!fallbackOfferings || fallbackOfferings.length === 0) {
+      continue;
+    }
+
+    for (const offering of fallbackOfferings) {
+      const existingEnrollment = await get(
+        db,
+        `SELECT id FROM enrollments WHERE studentId = ? AND subjectId = ? AND academicYear = ? AND semester = ?`,
+        [student.studentId, offering.id, entry.academicYear, entry.semester],
+      );
+
+      if (!existingEnrollment) {
+        const enrollmentId = crypto.randomUUID();
+        await run(
+          db,
+          `INSERT INTO enrollments (id, studentId, subjectId, academicYear, semester, enrolledAt, status) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [enrollmentId, student.studentId, offering.id, entry.academicYear, entry.semester, new Date().toISOString(), "enrolled"],
+        );
+        created.push({ ...entry, subjectId: offering.id });
+      }
+
+      const existingGrades = await all(db, `SELECT id FROM grades WHERE studentId = ? AND subjectId = ?`, [student.studentId, offering.id]);
+      if (existingGrades.length > 0) {
+        continue;
+      }
+
+      const breakdown = generateGradeBreakdown({
+        period: "final",
+        studentSeed: Number(String(student.studentId).split("-").pop() || 1),
+      });
+
+      const periodGrades = {
+        prelim: generateGradeBreakdown({ period: "prelim", studentSeed: Number(String(student.studentId).split("-").pop() || 1) + 1 }),
+        midterm: generateGradeBreakdown({ period: "midterm", studentSeed: Number(String(student.studentId).split("-").pop() || 1) + 2 }),
+        final: breakdown,
+      };
+
+      const gradeRows = [];
+      for (const [periodKey, periodBreakdown] of Object.entries(periodGrades)) {
+        for (const component of periodBreakdown.components) {
+          const gradeValue = Number(component.grade);
+          const remarks = gradeValue >= 75 ? "Passed" : gradeValue >= 60 ? "INC" : "Failed";
+          gradeRows.push({
+            period: periodBreakdown.period,
+            type: component.type,
+            component: component.component,
+            grade: gradeValue,
+            remarks,
+          });
+        }
+      }
+
+      for (const entryRow of gradeRows) {
+        await run(
+          db,
+          `INSERT INTO grades (id, studentId, subjectId, grade, remarks, period, type, component, status, submittedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [crypto.randomUUID(), student.studentId, offering.id, entryRow.grade, entryRow.remarks, entryRow.period, entryRow.type, entryRow.component, "finalized", Date.now()],
+        );
+      }
+
+      const finalGrade = Number(((periodGrades.prelim.overall.grade * 0.3) + (periodGrades.midterm.overall.grade * 0.3) + (periodGrades.final.overall.grade * 0.4)).toFixed(2));
+      await run(
+        db,
+        `INSERT INTO grades (id, studentId, subjectId, grade, remarks, period, type, component, status, submittedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [crypto.randomUUID(), student.studentId, offering.id, finalGrade, finalGrade >= 75 ? "Passed" : finalGrade >= 60 ? "INC" : "Failed", "final", "overall", "final", "finalized", Date.now()],
+      );
+    }
+  }
+
+  return created;
+}
+
+export async function backfillAcademicRecordsForAllStudents() {
+  const db = await openDb();
+  try {
+    const students = await all(db, `SELECT studentId, program, yearLevel, semester, academicYear FROM students WHERE studentId IS NOT NULL`);
+    for (const student of students) {
+      await seedAcademicHistoryForStudent(db, student);
+    }
+    return { studentsProcessed: students.length };
+  } finally {
+    await new Promise((resolve, reject) => db.close((err) => (err ? reject(err) : resolve())));
+  }
+}
+
 export async function seedStudentRecords({ academicYear = "2026-2027", activeSemester = "1st Semester" } = {}) {
   const db = await openDb();
   try {
     const existingCount = await get(db, "SELECT COUNT(*) AS count FROM students");
     if (Number(existingCount?.count || 0) >= 900) {
-      await run(db, "DELETE FROM enrollments");
-      return { inserted: 0, existing: Number(existingCount?.count || 0) };
+      const students = await all(db, "SELECT studentId, program, yearLevel, semester, academicYear FROM students WHERE studentId IS NOT NULL");
+      for (const student of students) {
+        await seedAcademicHistoryForStudent(db, student);
+      }
+      return { inserted: 0, existing: Number(existingCount?.count || 0), backfilled: students.length };
     }
 
     await run(db, "DELETE FROM enrollments");
@@ -290,6 +469,13 @@ export async function seedStudentRecords({ academicYear = "2026-2027", activeSem
           ],
         );
 
+        await seedAcademicHistoryForStudent(db, {
+          studentId: normalized.studentId,
+          program: normalized.program,
+          yearLevel: normalized.yearLevel,
+          semester: normalized.semester,
+          academicYear: normalized.academicYear,
+        });
       }
     }
 

@@ -24,6 +24,34 @@ import {
 } from "@/lib/api";
 import { YEAR_LEVELS, SEMESTERS } from "@/lib/subjects-store";
 
+function buildGradeBreakdown(periodEntries: GradeEntry[], computedGrade: number | null) {
+  const componentDefinitions = [
+    { key: "quiz", label: "Quiz" },
+    { key: "assignment", label: "Assignment" },
+    { key: "activity", label: "Activity" },
+    { key: "project", label: "Project" },
+    { key: "exam", label: "Exam" },
+  ];
+
+  const items = componentDefinitions
+    .map(({ key, label }) => {
+      const values = periodEntries
+        .filter((entry) => entry.type === key || entry.component?.toLowerCase() === key)
+        .map((entry) => entry.grade);
+      return values.length > 0 ? { label, values } : null;
+    })
+    .filter((item): item is { label: string; values: number[] } => Boolean(item));
+
+  if (items.length === 0) {
+    const fallbackValues = periodEntries.map((entry) => entry.grade);
+    if (fallbackValues.length > 0) {
+      return { items: [{ label: "Recorded Scores", values: fallbackValues }], computedGrade };
+    }
+  }
+
+  return { items, computedGrade };
+}
+
 export const Route = createFileRoute("/dashboard/student/")({
   component: StudentDashboard,
 });
@@ -72,9 +100,9 @@ function StudentDashboard() {
       ]);
 
       setStudentProfile(profile);
-      const activeEnrollments = enrollmentData.filter((entry) => entry.status !== "dropped");
-      setEnrollments(activeEnrollments);
-      const enrolledSubjectIds = new Set(activeEnrollments.map((entry) => entry.subjectId));
+      const persistedEnrollments = enrollmentData.filter((entry) => entry.status !== "dropped");
+      setEnrollments(persistedEnrollments);
+      const enrolledSubjectIds = new Set(persistedEnrollments.map((entry) => entry.subjectId));
       setSubjects(subjectData.filter((subject) => enrolledSubjectIds.has(subject.id)));
       setGrades(gradeData);
       setAnnouncements((announcementData || []).filter((item) => item.audience === "all" || item.audience === "student"));
@@ -550,9 +578,13 @@ function StudentDashboard() {
                               <thead>
                                 <tr className="border-b text-left text-xs text-muted-foreground">
                                   <th className="pb-2 pr-4">Subject</th>
+                                  <th className="pb-2 pr-4">Units</th>
                                   <th className="pb-2 pr-4">Faculty</th>
+                                  <th className="pb-2 pr-4">Year Level</th>
+                                  <th className="pb-2 pr-4">Semester</th>
+                                  <th className="pb-2 pr-4">Academic Year</th>
                                   <th className="pb-2 pr-4">Final Grade</th>
-                                  <th className="pb-2 pr-4">Status</th>
+                                  <th className="pb-2">Remarks</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -568,30 +600,35 @@ function StudentDashboard() {
                                           </button>
                                           <p className="text-xs text-muted-foreground">{entry.subject.title}</p>
                                         </td>
+                                        <td className="py-3 pr-4 text-muted-foreground">{entry.subject.units ?? 0}</td>
                                         <td className="py-3 pr-4 text-muted-foreground">{entry.subject.instructor || "—"}</td>
+                                        <td className="py-3 pr-4 text-muted-foreground">{entry.subject.yearLevel || entry.subject.semester ? entry.subject.yearLevel || "—" : "—"}</td>
+                                        <td className="py-3 pr-4 text-muted-foreground">{entry.subject.semester || entry.semester || "—"}</td>
+                                        <td className="py-3 pr-4 text-muted-foreground">{entry.academicYear || entry.subject.academicYear || "—"}</td>
                                         <td className="py-3 pr-4 text-muted-foreground">{entry.finalGrade ?? "—"}</td>
                                         <td className="py-3 text-muted-foreground">{entry.gradeStatus}</td>
                                       </tr>
                                       {isExpandedSubject && (
                                         <tr>
-                                          <td colSpan={4} className="pb-3">
+                                          <td colSpan={8} className="pb-3">
                                             <div className="rounded-lg border bg-muted/30 p-3">
                                               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Grade Breakdown</p>
                                               <div className="mt-3 grid gap-3 md:grid-cols-3">
                                                 {(["prelim", "midterm", "final"] as const).map((period) => {
                                                   const periodGrades = entry.subjectGrades.filter((grade) => grade.period === period);
-                                                  const quizScores = periodGrades.filter((grade) => grade.type === "quiz").map((grade) => grade.grade);
-                                                  const activityScores = periodGrades.filter((grade) => grade.type === "activity").map((grade) => grade.grade);
-                                                  const examScores = periodGrades.filter((grade) => grade.type === "exam").map((grade) => grade.grade);
                                                   const computed = period === "prelim" ? null : period === "midterm" ? null : entry.finalGrade;
+                                                  const { items } = buildGradeBreakdown(periodGrades, computed);
+                                                  const label = period === "prelim" ? "Prelim Grade" : period === "midterm" ? "Midterm Grade" : "Final Grade";
                                                   return (
                                                     <div key={`${entry.subject.id}-${period}`} className="rounded-lg border bg-background/70 p-3">
                                                       <p className="text-sm font-semibold capitalize text-foreground">{period}</p>
                                                       <div className="mt-2 space-y-1 text-sm text-muted-foreground">
-                                                        <p><span className="font-medium text-foreground">Quiz:</span> {quizScores.length > 0 ? quizScores.join(", ") : "—"}</p>
-                                                        <p><span className="font-medium text-foreground">Activity:</span> {activityScores.length > 0 ? activityScores.join(", ") : "—"}</p>
-                                                        <p><span className="font-medium text-foreground">Exam:</span> {examScores.length > 0 ? examScores.join(", ") : "—"}</p>
-                                                        <p><span className="font-medium text-foreground">Grade:</span> {computed ?? "—"}</p>
+                                                        {items.map((item) => (
+                                                          <p key={`${entry.subject.id}-${period}-${item.label}`}>
+                                                            <span className="font-medium text-foreground">{item.label}:</span> {item.values.join(", ")}
+                                                          </p>
+                                                        ))}
+                                                        <p><span className="font-medium text-foreground">{label}:</span> {computed ?? "—"}</p>
                                                       </div>
                                                     </div>
                                                   );
@@ -764,18 +801,19 @@ function StudentDashboard() {
                 <div className="mt-4 grid gap-4 lg:grid-cols-3">
                   {(["prelim", "midterm", "final"] as const).map((period) => {
                     const entries = selectedSubjectSummary.subjectGrades.filter((grade) => grade.period === period);
-                    const quizScores = entries.filter((grade) => grade.type === "quiz").map((grade) => grade.grade);
-                    const activityScores = entries.filter((grade) => grade.type === "activity").map((grade) => grade.grade);
-                    const examScores = entries.filter((grade) => grade.type === "exam").map((grade) => grade.grade);
                     const computed = period === "prelim" ? selectedSubjectSummary.prelimGrade : period === "midterm" ? selectedSubjectSummary.midtermGrade : selectedSubjectSummary.finalGrade;
+                    const { items } = buildGradeBreakdown(entries, computed);
+                    const label = period === "prelim" ? "Prelim Grade" : period === "midterm" ? "Midterm Grade" : "Final Grade";
                     return (
                       <div key={period} className="rounded-lg border bg-background/70 p-4">
                         <p className="text-sm font-semibold capitalize text-foreground">{period}</p>
                         <div className="mt-3 space-y-2 text-sm text-muted-foreground">
-                          <p><span className="font-medium text-foreground">Quiz Scores:</span> {quizScores.length > 0 ? quizScores.join(", ") : "—"}</p>
-                          <p><span className="font-medium text-foreground">Activity Scores:</span> {activityScores.length > 0 ? activityScores.join(", ") : "—"}</p>
-                          <p><span className="font-medium text-foreground">Exam Score:</span> {examScores.length > 0 ? examScores.join(", ") : "—"}</p>
-                          <p><span className="font-medium text-foreground">Computed Grade:</span> {computed ?? "—"}</p>
+                          {items.map((item) => (
+                            <p key={`${period}-${item.label}`}>
+                              <span className="font-medium text-foreground">{item.label}:</span> {item.values.join(", ")}
+                            </p>
+                          ))}
+                          <p><span className="font-medium text-foreground">{label}:</span> {computed ?? "—"}</p>
                         </div>
                       </div>
                     );
