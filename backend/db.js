@@ -85,6 +85,52 @@ export async function initDb(db) {
 
   await run(
     db,
+    `CREATE TABLE IF NOT EXISTS academic_years (
+      id TEXT PRIMARY KEY,
+      code TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      startDate TEXT,
+      endDate TEXT,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'inactive')),
+      createdAt TEXT NOT NULL
+    )`,
+  );
+
+  await run(
+    db,
+    `CREATE TABLE IF NOT EXISTS semesters (
+      id TEXT PRIMARY KEY,
+      code TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      sequence INTEGER NOT NULL,
+      academicYearId TEXT,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'inactive')),
+      createdAt TEXT NOT NULL,
+      FOREIGN KEY (academicYearId) REFERENCES academic_years(id)
+    )`,
+  );
+
+  await run(
+    db,
+    `CREATE TABLE IF NOT EXISTS sections (
+      id TEXT PRIMARY KEY,
+      code TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      programId TEXT,
+      yearLevel TEXT,
+      semesterId TEXT,
+      academicYearId TEXT,
+      capacity INTEGER,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'inactive')),
+      createdAt TEXT NOT NULL,
+      FOREIGN KEY (programId) REFERENCES programs(id),
+      FOREIGN KEY (semesterId) REFERENCES semesters(id),
+      FOREIGN KEY (academicYearId) REFERENCES academic_years(id)
+    )`,
+  );
+
+  await run(
+    db,
     `CREATE TABLE IF NOT EXISTS curriculum (
       id TEXT PRIMARY KEY,
       programId TEXT NOT NULL,
@@ -144,6 +190,27 @@ export async function initDb(db) {
       facultyId TEXT,
       academicYear TEXT,
       addedAt INTEGER NOT NULL
+    )`,
+  );
+
+  await run(
+    db,
+    `CREATE TABLE IF NOT EXISTS subject_offerings (
+      id TEXT PRIMARY KEY,
+      subjectId TEXT NOT NULL,
+      academicYearId TEXT,
+      semesterId TEXT,
+      sectionId TEXT,
+      facultyId TEXT,
+      schedule TEXT,
+      room TEXT,
+      capacity INTEGER,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'inactive', 'closed')),
+      createdAt TEXT NOT NULL,
+      FOREIGN KEY (subjectId) REFERENCES subjects(id),
+      FOREIGN KEY (academicYearId) REFERENCES academic_years(id),
+      FOREIGN KEY (semesterId) REFERENCES semesters(id),
+      FOREIGN KEY (sectionId) REFERENCES sections(id)
     )`,
   );
 
@@ -266,6 +333,42 @@ await run(
 
   await run(
     db,
+    `CREATE TABLE IF NOT EXISTS faculty (
+      id TEXT PRIMARY KEY,
+      userId TEXT UNIQUE NOT NULL,
+      employeeId TEXT UNIQUE,
+      firstName TEXT NOT NULL,
+      lastName TEXT NOT NULL,
+      middleName TEXT,
+      email TEXT UNIQUE NOT NULL,
+      department TEXT,
+      designation TEXT,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'inactive')),
+      createdAt TEXT NOT NULL,
+      FOREIGN KEY (userId) REFERENCES users(id)
+    )`,
+  );
+
+  await run(
+    db,
+    `CREATE TABLE IF NOT EXISTS academic_records (
+      id TEXT PRIMARY KEY,
+      studentId TEXT NOT NULL,
+      subjectId TEXT,
+      academicYearId TEXT,
+      semesterId TEXT,
+      recordType TEXT NOT NULL DEFAULT 'summary' CHECK(recordType IN ('summary', 'transcript', 'certificate')),
+      summary TEXT,
+      createdAt TEXT NOT NULL,
+      FOREIGN KEY (studentId) REFERENCES students(studentId),
+      FOREIGN KEY (subjectId) REFERENCES subjects(id),
+      FOREIGN KEY (academicYearId) REFERENCES academic_years(id),
+      FOREIGN KEY (semesterId) REFERENCES semesters(id)
+    )`,
+  );
+
+  await run(
+    db,
     `CREATE TABLE IF NOT EXISTS notifications (
       id TEXT PRIMARY KEY,
       userId TEXT NOT NULL,
@@ -308,7 +411,33 @@ await run(
     )`,
   );
 
-  // Seed programs and curriculum
+  const existingAcademicYears = await all(db, "SELECT * FROM academic_years LIMIT 1");
+  if (existingAcademicYears.length === 0) {
+    const academicYears = [
+      { id: crypto.randomUUID(), code: "2025-2026", name: "Academic Year 2025-2026", startDate: "2025-06-01", endDate: "2026-03-31", createdAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), code: "2026-2027", name: "Academic Year 2026-2027", startDate: "2026-06-01", endDate: "2027-03-31", createdAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), code: "2027-2028", name: "Academic Year 2027-2028", startDate: "2027-06-01", endDate: "2028-03-31", createdAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), code: "2028-2029", name: "Academic Year 2028-2029", startDate: "2028-06-01", endDate: "2029-03-31", createdAt: new Date().toISOString() },
+    ];
+    for (const item of academicYears) {
+      await run(db, "INSERT INTO academic_years (id, code, name, startDate, endDate, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)", [item.id, item.code, item.name, item.startDate, item.endDate, "active", item.createdAt]);
+    }
+
+    const semesters = [
+      { id: crypto.randomUUID(), code: "1st Semester", name: "First Semester", sequence: 1, createdAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), code: "2nd Semester", name: "Second Semester", sequence: 2, createdAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), code: "Summer", name: "Summer Term", sequence: 3, createdAt: new Date().toISOString() },
+    ];
+    const academicYearRows = await all(db, "SELECT id FROM academic_years ORDER BY code");
+    for (let index = 0; index < semesters.length; index += 1) {
+      const semester = semesters[index];
+      const academicYearId = academicYearRows[Math.min(index, academicYearRows.length - 1)]?.id;
+      if (academicYearId) {
+        await run(db, "INSERT INTO semesters (id, code, name, sequence, academicYearId, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)", [semester.id, semester.code, semester.name, semester.sequence, academicYearId, "active", semester.createdAt]);
+      }
+    }
+  }
+
   const existingPrograms = await all(db, "SELECT * FROM programs LIMIT 1");
   if (existingPrograms.length === 0) {
     const programs = [

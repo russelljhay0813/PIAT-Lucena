@@ -7,13 +7,19 @@ The PIAT School Management System uses a SQLite relational database managed by t
 ## Core Tables
 
 - programs
+- academic_years
+- semesters
+- sections
 - curriculum
 - users
 - subjects
+- subject_offerings
 - enrollments
 - students
 - grades
 - attendance
+- faculty
+- academic_records
 - notifications
 - announcements
 - activity_logs
@@ -25,6 +31,36 @@ programs
   - id (PK)
   - name
   - description
+  - status
+  - createdAt
+
+academic_years
+  - id (PK)
+  - code
+  - name
+  - startDate
+  - endDate
+  - status
+  - createdAt
+
+semesters
+  - id (PK)
+  - code
+  - name
+  - sequence
+  - academicYearId (FK -> academic_years.id)
+  - status
+  - createdAt
+
+sections
+  - id (PK)
+  - code
+  - name
+  - programId (FK -> programs.id)
+  - yearLevel
+  - semesterId (FK -> semesters.id)
+  - academicYearId (FK -> academic_years.id)
+  - capacity
   - status
   - createdAt
 
@@ -72,6 +108,19 @@ subjects
   - facultyId
   - academicYear
   - addedAt
+
+subject_offerings
+  - id (PK)
+  - subjectId (FK -> subjects.id)
+  - academicYearId (FK -> academic_years.id)
+  - semesterId (FK -> semesters.id)
+  - sectionId (FK -> sections.id)
+  - facultyId
+  - schedule
+  - room
+  - capacity
+  - status
+  - createdAt
 
 enrollments
   - id (PK)
@@ -160,6 +209,29 @@ attendance
   - status
   - updatedAt
 
+faculty
+  - id (PK)
+  - userId (FK -> users.id)
+  - employeeId
+  - firstName
+  - lastName
+  - middleName
+  - email
+  - department
+  - designation
+  - status
+  - createdAt
+
+academic_records
+  - id (PK)
+  - studentId (FK -> students.studentId)
+  - subjectId (FK -> subjects.id)
+  - academicYearId (FK -> academic_years.id)
+  - semesterId (FK -> semesters.id)
+  - recordType
+  - summary
+  - createdAt
+
 notifications
   - id (PK)
   - userId
@@ -198,3 +270,5 @@ activity_logs
 - The schema supports role-based access for administrators, registrars, faculty, and students.
 - The database is normalized enough for the current scope and uses foreign keys where appropriate.
 - Text columns are used for many identifiers because the system uses UUID-style string keys and SQLite-friendly field storage.
+- The current implementation uses dedicated tables for academic years, semesters, sections, subject offerings, faculty, and academic records to support the registrar and faculty workflows more explicitly.
+- Student enrollments remain linked to subjects, while subject offerings provide a more structured view of scheduled classes and sections.

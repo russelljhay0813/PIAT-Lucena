@@ -53,6 +53,44 @@ test("initDb adds semester and academicYear columns to legacy users table", asyn
   }
 });
 
+test("initDb creates the full academic management schema", async () => {
+  const db = new sqlite3.Database(":memory:");
+
+  try {
+    await initDb(db);
+    const tables = await new Promise((resolve, reject) => {
+      db.all(
+        `SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('academic_years','semesters','sections','faculty','subject_offerings','academic_records') ORDER BY name`,
+        (err, rows) => {
+          if (err) reject(err);
+          else resolve(rows.map((row) => row.name));
+        },
+      );
+    });
+
+    assert.deepEqual(tables, ["academic_records", "academic_years", "faculty", "sections", "semesters", "subject_offerings"]);
+
+    const academicYearCount = await new Promise((resolve, reject) => {
+      db.get("SELECT COUNT(*) AS count FROM academic_years", (err, row) => {
+        if (err) reject(err);
+        else resolve(row.count);
+      });
+    });
+
+    const semesterCount = await new Promise((resolve, reject) => {
+      db.get("SELECT COUNT(*) AS count FROM semesters", (err, row) => {
+        if (err) reject(err);
+        else resolve(row.count);
+      });
+    });
+
+    assert.ok(academicYearCount >= 4, "expected seeded academic years");
+    assert.ok(semesterCount >= 2, "expected seeded semesters");
+  } finally {
+    await new Promise((resolve, reject) => db.close((err) => (err ? reject(err) : resolve())));
+  }
+});
+
 test("initDb seeds subject offerings for every supported academic year", async () => {
   const db = new sqlite3.Database(":memory:");
 
