@@ -21,6 +21,9 @@ export default function LoginScreen() {
     try {
       await initDb();
       const authData = await loginUser({ email, password });
+      if (authData.role !== "faculty") {
+        throw new Error("This mobile app is restricted to faculty accounts.");
+      }
       await saveAuthData({ token: authData.token, user: authData });
       await upsertFaculty({
         id: authData.id,

@@ -7,6 +7,7 @@ import { normalizeStudentPayload, normalizeUserPayload } from "./schema-utils.js
 import { resolveProgramIdForStudent } from "./reenrollment-utils.js";
 import { resolveAutoApprovalStatus, validateRegistrationPayload } from "./registration-workflow.js";
 import { resolveRequestIdentity } from "./auth-utils.js";
+import { buildAttendanceRecordPayload } from "./attendance-utils.js";
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -762,67 +763,86 @@ app.delete("/api/grades", requireRole("admin", "faculty"), async (req, res) => {
 });
 
 app.get("/api/attendance", requireRole("admin", "faculty", "registrar", "student"), async (req, res) => {
-   const subjectId = req.query.subjectId ? String(req.query.subjectId) : null;
-   const date = req.query.date ? String(req.query.date) : null;
-   const studentId = req.query.studentId ? String(req.query.studentId) : null;
-   if (!subjectId && !studentId) return res.status(400).json({ error: "subjectId or studentId is required" });
-   let rows;
-   if (date) {
-     rows = await all(
-       db,
-       "SELECT * FROM attendance WHERE subjectId = ? AND date = ? ORDER BY studentId",
-       [subjectId, date],
-     );
-   } else if (studentId) {
-     rows = await all(
-       db,
-       "SELECT * FROM attendance WHERE studentId = ? ORDER BY date DESC",
-       [studentId],
-     );
-   } else {
-     rows = await all(
-       db,
-       "SELECT * FROM attendance WHERE subjectId = ? ORDER BY date DESC, studentId",
-       [subjectId],
-     );
-   }
-   res.json(rows);
- });
+  const subjectId = req.query.subjectId ? String(req.query.subjectId) : null;
+  const date = req.query.date ? String(req.query.date) : null;
+  const studentId = req.query.studentId ? String(req.query.studentId) : null;
+  if (!subjectId && !studentId) return sendError(res, 400, "subjectId or studentId is required");
+
+  let rows;
+  if (date) {
+    rows = await all(
+      db,
+      "SELECT * FROM attendance WHERE subjectId = ? AND date = ? ORDER BY studentId",
+      [subjectId, date],
+    );
+  } else if (studentId) {
+    rows = await all(
+      db,
+      "SELECT * FROM attendance WHERE studentId = ? ORDER BY date DESC",
+      [studentId],
+    );
+  } else {
+    rows = await all(
+      db,
+      "SELECT * FROM attendance WHERE subjectId = ? ORDER BY date DESC, studentId",
+      [subjectId],
+    );
+  }
+
+  res.json(rows);
+});
 
 app.post("/api/attendance", requireRole("admin", "faculty"), async (req, res) => {
-  const { studentId, subjectId, date, status } = req.body;
+  const { studentId, subjectId, date, status, time, section } = req.body;
   if (!studentId || !subjectId || !date || !status) {
-    return res.status(400).json({ error: "studentId, subjectId, date, and status are required" });
+    return sendError(res, 400, "studentId, subjectId, date, and status are required");
   }
+
+  const subject = await get(db, "SELECT * FROM subjects WHERE id = ?", [subjectId]);
+  if (!subject) {
+    return sendError(res, 404, "Subject not found");
+  }
+
+  if (req.userContext.role === "faculty" && String(subject.facultyId) !== req.userContext.userId) {
+    return sendError(res, 403, "Forbidden");
+  }
+
+  const student = await get(db, "SELECT * FROM students WHERE studentId = ?", [studentId]);
   const existing = await get(
     db,
     "SELECT * FROM attendance WHERE studentId = ? AND subjectId = ? AND date = ?",
     [studentId, subjectId, date],
   );
+
+  const payload = buildAttendanceRecordPayload({
+    studentId,
+    subjectId,
+    date,
+    status,
+    student,
+    subject,
+    facultyId: req.userContext.userId,
+    time,
+    section,
+  });
+
   if (existing) {
     await run(
       db,
-      "UPDATE attendance SET status = ?, updatedAt = ? WHERE id = ?",
-      [String(status), Date.now(), existing.id],
+      `UPDATE attendance SET studentName = ?, subjectCode = ?, subjectTitle = ?, facultyId = ?, time = ?, academicYear = ?, semester = ?, program = ?, yearLevel = ?, section = ?, status = ?, updatedAt = ? WHERE id = ?`,
+      [payload.studentName, payload.subjectCode, payload.subjectTitle, payload.facultyId, payload.time, payload.academicYear, payload.semester, payload.program, payload.yearLevel, payload.section, payload.status, payload.updatedAt, existing.id],
     );
     const updated = await get(db, "SELECT * FROM attendance WHERE id = ?", [existing.id]);
     return res.json(updated);
   }
 
-  const record = {
-    id: crypto.randomUUID(),
-    studentId: String(studentId),
-    subjectId: String(subjectId),
-    date: String(date),
-    status: String(status),
-    updatedAt: Date.now(),
-  };
   await run(
     db,
-    "INSERT INTO attendance (id, studentId, subjectId, date, status, updatedAt) VALUES (?, ?, ?, ?, ?, ?)",
-    [record.id, record.studentId, record.subjectId, record.date, record.status, record.updatedAt],
+    `INSERT INTO attendance (id, studentId, studentName, subjectId, subjectCode, subjectTitle, facultyId, date, time, academicYear, semester, program, yearLevel, section, status, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [payload.id, payload.studentId, payload.studentName, payload.subjectId, payload.subjectCode, payload.subjectTitle, payload.facultyId, payload.date, payload.time, payload.academicYear, payload.semester, payload.program, payload.yearLevel, payload.section, payload.status, payload.updatedAt],
   );
-  res.status(201).json(record);
+  res.status(201).json(payload);
 });
 
 
@@ -1095,13 +1115,13 @@ app.get("/api/faculty/subjects/:subjectId/students", requireRole("admin", "facul
 app.post("/api/attendance/bulk", requireRole("admin", "faculty"), async (req, res) => {
   const records = Array.isArray(req.body?.records) ? req.body.records : null;
   if (!records || records.length === 0) {
-    return res.status(400).json({ error: "records must be a non-empty array" });
+    return sendError(res, 400, "records must be a non-empty array");
   }
 
   const results = [];
   for (const record of records) {
     const localId = record.localId || null;
-    const { studentId, subjectId, date, status } = record;
+    const { studentId, subjectId, date, status, time, section } = record;
     if (!studentId || !subjectId || !date || !status) {
       results.push({ localId, status: "failed", error: "Missing required fields" });
       continue;
@@ -1117,23 +1137,37 @@ app.post("/api/attendance/bulk", requireRole("admin", "faculty"), async (req, re
       continue;
     }
 
+    const student = await get(db, "SELECT * FROM students WHERE studentId = ?", [studentId]);
     const existing = await get(db, "SELECT * FROM attendance WHERE studentId = ? AND subjectId = ? AND date = ?", [studentId, subjectId, date]);
+    const payload = buildAttendanceRecordPayload({
+      studentId,
+      subjectId,
+      date,
+      status,
+      student,
+      subject,
+      facultyId: req.userContext.userId,
+      time,
+      section,
+    });
+
     if (existing) {
-      await run(db, "UPDATE attendance SET status = ?, updatedAt = ? WHERE id = ?", [String(status), Date.now(), existing.id]);
+      await run(
+        db,
+        `UPDATE attendance SET studentName = ?, subjectCode = ?, subjectTitle = ?, facultyId = ?, time = ?, academicYear = ?, semester = ?, program = ?, yearLevel = ?, section = ?, status = ?, updatedAt = ? WHERE id = ?`,
+        [payload.studentName, payload.subjectCode, payload.subjectTitle, payload.facultyId, payload.time, payload.academicYear, payload.semester, payload.program, payload.yearLevel, payload.section, payload.status, payload.updatedAt, existing.id],
+      );
       results.push({ localId, id: existing.id, status: "updated" });
       continue;
     }
 
-    const entry = {
-      id: crypto.randomUUID(),
-      studentId: String(studentId),
-      subjectId: String(subjectId),
-      date: String(date),
-      status: String(status),
-      updatedAt: Date.now(),
-    };
-    await run(db, "INSERT INTO attendance (id, studentId, subjectId, date, status, updatedAt) VALUES (?, ?, ?, ?, ?, ?)", [entry.id, entry.studentId, entry.subjectId, entry.date, entry.status, entry.updatedAt]);
-    results.push({ localId, id: entry.id, status: "created" });
+    await run(
+      db,
+      `INSERT INTO attendance (id, studentId, studentName, subjectId, subjectCode, subjectTitle, facultyId, date, time, academicYear, semester, program, yearLevel, section, status, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [payload.id, payload.studentId, payload.studentName, payload.subjectId, payload.subjectCode, payload.subjectTitle, payload.facultyId, payload.date, payload.time, payload.academicYear, payload.semester, payload.program, payload.yearLevel, payload.section, payload.status, payload.updatedAt],
+    );
+    results.push({ localId, id: payload.id, status: "created" });
   }
 
   res.json(results);

@@ -319,8 +319,18 @@ await run(
      `CREATE TABLE IF NOT EXISTS attendance (
        id TEXT PRIMARY KEY,
        studentId TEXT NOT NULL,
+       studentName TEXT,
        subjectId TEXT NOT NULL,
+       subjectCode TEXT,
+       subjectTitle TEXT,
+       facultyId TEXT,
        date TEXT NOT NULL,
+       time TEXT,
+       academicYear TEXT,
+       semester TEXT,
+       program TEXT,
+       yearLevel TEXT,
+       section TEXT,
        status TEXT NOT NULL CHECK(status IN ('present', 'absent', 'late', 'excused')),
        updatedAt INTEGER NOT NULL,
        FOREIGN KEY (studentId) REFERENCES students(studentId),
@@ -328,8 +338,16 @@ await run(
        UNIQUE(studentId, subjectId, date)
      )`,
   );
-
-
+  await addColumnIfMissing(db, "attendance", "studentName", "TEXT");
+  await addColumnIfMissing(db, "attendance", "subjectCode", "TEXT");
+  await addColumnIfMissing(db, "attendance", "subjectTitle", "TEXT");
+  await addColumnIfMissing(db, "attendance", "facultyId", "TEXT");
+  await addColumnIfMissing(db, "attendance", "time", "TEXT");
+  await addColumnIfMissing(db, "attendance", "academicYear", "TEXT");
+  await addColumnIfMissing(db, "attendance", "semester", "TEXT");
+  await addColumnIfMissing(db, "attendance", "program", "TEXT");
+  await addColumnIfMissing(db, "attendance", "yearLevel", "TEXT");
+  await addColumnIfMissing(db, "attendance", "section", "TEXT");
 
   await run(
     db,

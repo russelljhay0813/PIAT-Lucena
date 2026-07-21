@@ -153,6 +153,13 @@ export default function SubjectAttendanceScreen() {
         }}
         ListEmptyComponent={<Text style={styles.empty}>No enrolled students found.</Text>}
       />
+      <Card style={styles.summaryCard}>
+        <Card.Content>
+          <Text>Pending sync: {sync.pendingCount}</Text>
+          <Text>Connection: {sync.isConnected ? "Online" : "Offline"}</Text>
+          <Text>{sync.isSyncing ? "Syncing attendance..." : "Attendance changes are saved locally until synced."}</Text>
+        </Card.Content>
+      </Card>
       <Button mode="contained" onPress={handleSave} style={styles.saveButton}>Save Attendance</Button>
     </View>
   );
@@ -166,4 +173,5 @@ const styles = StyleSheet.create({
   optionRow: { flexDirection: "row", alignItems: "center", gap: 8, marginVertical: 4 },
   empty: { textAlign: "center", marginTop: 40 },
   saveButton: { marginTop: 16 },
+  summaryCard: { marginTop: 12, backgroundColor: "#f7f9fc" },
 });

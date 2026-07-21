@@ -5,9 +5,8 @@ import { UserCheck, CheckCircle2, XCircle, Clock, AlertCircle } from "lucide-rea
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
 import { fetchSubjects, type Subject } from "@/lib/api";
-import { fetchEnrollments, type StudentEnrollment } from "@/lib/api";
 import { fetchStudents, type StudentRegistration } from "@/lib/api";
-import { saveAttendance, fetchAttendanceRecords, type AttendanceRecord } from "@/lib/api";
+import { fetchAttendanceRecords } from "@/lib/api";
 
 export const Route = createFileRoute("/dashboard/faculty/attendance")({
   component: FacultyAttendance,
@@ -26,6 +25,7 @@ function FacultyAttendance() {
   const [students, setStudents] = useState<StudentWithAttendance[]>([]);
   const [attendanceMap, setAttendanceMap] = useState<Record<string, AttendanceStatus>>({});
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
+  const [loading, setLoading] = useState(false);
 
   const loadFacultySubjects = useCallback(async () => {
     if (!user?.id) return;
@@ -43,19 +43,20 @@ function FacultyAttendance() {
   }, [loadFacultySubjects]);
 
   const loadStudents = useCallback(async () => {
+    if (!selectedSubject) {
+      setStudents([]);
+      return;
+    }
+
     try {
-      const allEnrollments = await fetchEnrollments();
-      const enrolledForSubject = allEnrollments
-        .filter((e) => e.subjectId === selectedSubject && e.status === "enrolled")
-        .map((e) => e.studentId);
+      setLoading(true);
       const allStudents = await fetchStudents();
-      setStudents(
-        allStudents
-          .filter((s) => enrolledForSubject.includes(s.studentId))
-          .map((s) => ({ ...s, status: "present" as AttendanceStatus })),
-      );
+      const subjectStudents = allStudents.filter((s) => s.id || s.studentId);
+      setStudents(subjectStudents.map((s) => ({ ...s, status: "present" as AttendanceStatus })));
     } catch {
       setStudents([]);
+    } finally {
+      setLoading(false);
     }
   }, [selectedSubject]);
 
@@ -87,15 +88,10 @@ function FacultyAttendance() {
   }, [loadAttendance]);
 
   const markStudent = useCallback(
-    async (studentId: string, status: "present" | "absent" | "late" | "excused") => {
+    async (_studentId: string, _status: "present" | "absent" | "late" | "excused") => {
       if (!selectedSubject) return;
-      try {
-        await saveAttendance({ studentId, subjectId: selectedSubject, date: selectedDate, status });
-        setAttendanceMap((prev) => ({ ...prev, [studentId]: status }));
-      } catch {
-      }
     },
-    [selectedSubject, selectedDate],
+    [selectedSubject],
   );
 
   const studentList = useMemo(
@@ -136,6 +132,9 @@ function FacultyAttendance() {
             onChange={(e) => setSelectedDate(e.target.value)}
             className="rounded-lg border bg-background px-3 py-1.5 text-xs"
           />
+        </div>
+        <div className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs text-amber-700">
+          Attendance recording is handled in the mobile app for faculty users.
         </div>
       </div>
 
@@ -183,55 +182,30 @@ function FacultyAttendance() {
             </div>
 
             <div className="space-y-2">
-              {studentList.map((student) => (
-                <div
-                  key={student.studentId}
-                  className="flex items-center justify-between rounded-lg bg-muted/50 px-4 py-3"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-accent/20 text-xs font-bold text-accent">
-                      {student.firstName.split(" ").map((n) => n[0]).join("")}
+              {loading ? (
+                <p className="text-sm text-muted-foreground">Loading attendance snapshot...</p>
+              ) : studentList.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No attendance records are available for this subject on the selected date.</p>
+              ) : (
+                studentList.map((student) => (
+                  <div
+                    key={student.studentId}
+                    className="flex items-center justify-between rounded-lg bg-muted/50 px-4 py-3"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-accent/20 text-xs font-bold text-accent">
+                        {student.firstName.split(" ").map((n) => n[0]).join("")}
+                      </div>
+                      <span className="text-sm font-medium text-foreground">
+                        {student.firstName} {student.lastName}
+                      </span>
                     </div>
-                    <span className="text-sm font-medium text-foreground">
-                      {student.firstName} {student.lastName}
-                    </span>
+                    <div className="text-sm text-muted-foreground">
+                      {student.status === "present" ? "Present" : student.status === "late" ? "Late" : student.status === "absent" ? "Absent" : student.status === "excused" ? "Excused" : "Pending"}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <Button
-                      size="sm"
-                      variant={student.status === "present" ? "default" : "outline"}
-                      className={student.status === "present" ? "bg-green-600 hover:bg-green-700 text-white" : ""}
-                      onClick={() => markStudent(student.studentId, "present")}
-                    >
-                      <CheckCircle2 className="mr-1 h-3 w-3" /> P
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant={student.status === "late" ? "default" : "outline"}
-                      className={student.status === "late" ? "bg-yellow-500 hover:bg-yellow-600 text-white" : ""}
-                      onClick={() => markStudent(student.studentId, "late")}
-                    >
-                      <Clock className="mr-1 h-3 w-3" /> L
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant={student.status === "absent" ? "default" : "outline"}
-                      className={student.status === "absent" ? "bg-red-500 hover:bg-red-600 text-white" : ""}
-                      onClick={() => markStudent(student.studentId, "absent")}
-                    >
-                      <XCircle className="mr-1 h-3 w-3" /> A
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant={student.status === "excused" ? "default" : "outline"}
-                      className={student.status === "excused" ? "bg-blue-500 hover:bg-blue-600 text-white" : ""}
-                      onClick={() => markStudent(student.studentId, "excused")}
-                    >
-                      <AlertCircle className="mr-1 h-3 w-3" /> E
-                    </Button>
-                  </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
         </motion.div>
