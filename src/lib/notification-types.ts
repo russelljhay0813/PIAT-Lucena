@@ -1,6 +1,6 @@
 /**
  * Notification System Type Definitions
- * 
+ *
  * This file provides TypeScript types for the notifications system.
  * It's imported by notifications-store.ts and can be used throughout the app.
  */
@@ -86,7 +86,11 @@ export interface UseNotificationsReturn {
  */
 export interface NotificationTriggers {
   notifyGradePosted: (studentId: string, subjectTitle: string) => Promise<void>;
-  notifyScheduleChange: (studentId: string, subjectTitle: string, changeDetails: string) => Promise<void>;
+  notifyScheduleChange: (
+    studentId: string,
+    subjectTitle: string,
+    changeDetails: string,
+  ) => Promise<void>;
   createNotification: (
     userId: string,
     type: NotificationType,

@@ -43,7 +43,8 @@ function RegistrarRegistrations() {
     };
   }, []);
 
-  const isPendingStatus = (status: string) => ["pending", "submitted", "under_review", "in_progress", "not_started"].includes(status);
+  const isPendingStatus = (status: string) =>
+    ["pending", "submitted", "under_review", "in_progress", "not_started"].includes(status);
 
   const filtered = list.filter((r) => {
     const q = search.toLowerCase();
@@ -52,7 +53,8 @@ function RegistrarRegistrations() {
       r.email.toLowerCase().includes(q) ||
       r.program.toLowerCase().includes(q) ||
       r.studentId.toLowerCase().includes(q);
-    const matchStatus = filter === "All" || (filter === "pending" ? isPendingStatus(r.status) : r.status === filter);
+    const matchStatus =
+      filter === "All" || (filter === "pending" ? isPendingStatus(r.status) : r.status === filter);
     return matchSearch && matchStatus;
   });
 
@@ -78,8 +80,13 @@ function RegistrarRegistrations() {
             { label: "Approved", count: counts.approved, color: "text-success", icon: XCircle },
             { label: "Rejected", count: counts.rejected, color: "text-destructive", icon: XCircle },
           ].map((s) => (
-            <div key={s.label} className="flex items-center gap-3 rounded-xl border bg-card p-4 shadow-sm">
-              <div className={`flex h-10 w-10 items-center justify-center rounded-lg bg-muted ${s.color}`}>
+            <div
+              key={s.label}
+              className="flex items-center gap-3 rounded-xl border bg-card p-4 shadow-sm"
+            >
+              <div
+                className={`flex h-10 w-10 items-center justify-center rounded-lg bg-muted ${s.color}`}
+              >
                 <s.icon className="h-5 w-5" />
               </div>
               <div>
@@ -123,7 +130,9 @@ function RegistrarRegistrations() {
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Program</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Year Level</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Semester</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Submission Date</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Submission Date
+              </th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Actions</th>
             </tr>
@@ -146,9 +155,13 @@ function RegistrarRegistrations() {
                 <td className="px-4 py-3 text-muted-foreground">{r.program}</td>
                 <td className="px-4 py-3 text-muted-foreground">{r.yearLevel}</td>
                 <td className="px-4 py-3 text-muted-foreground">{r.semester || "—"}</td>
-                <td className="px-4 py-3 text-muted-foreground">{r.submittedAt ? new Date(r.submittedAt).toLocaleDateString() : "—"}</td>
+                <td className="px-4 py-3 text-muted-foreground">
+                  {r.submittedAt ? new Date(r.submittedAt).toLocaleDateString() : "—"}
+                </td>
                 <td className="px-4 py-3">
-                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${r.status === "approved" ? "bg-success/10 text-success" : r.status === "rejected" ? "bg-destructive/10 text-destructive" : "bg-warning/10 text-warning"}`}>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${r.status === "approved" ? "bg-success/10 text-success" : r.status === "rejected" ? "bg-destructive/10 text-destructive" : "bg-warning/10 text-warning"}`}
+                  >
                     {r.status}
                   </span>
                 </td>
@@ -188,14 +201,19 @@ function RegistrarRegistrations() {
       </div>
 
       {selectedReg && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setSelectedReg(null)}>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => setSelectedReg(null)}
+        >
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             className="w-full max-w-lg rounded-xl bg-card p-6 shadow-lg"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="mb-4 font-heading text-lg font-bold text-foreground">Application Details</h2>
+            <h2 className="mb-4 font-heading text-lg font-bold text-foreground">
+              Application Details
+            </h2>
             <div className="grid gap-3 text-sm">
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -209,7 +227,8 @@ function RegistrarRegistrations() {
                 <div>
                   <p className="text-xs text-muted-foreground">Full Name</p>
                   <p className="font-medium text-foreground">
-                    {selectedReg.firstName} {selectedReg.middleName ? `${selectedReg.middleName} ` : ""}
+                    {selectedReg.firstName}{" "}
+                    {selectedReg.middleName ? `${selectedReg.middleName} ` : ""}
                     {selectedReg.lastName}
                     {selectedReg.suffix ? ` ${selectedReg.suffix}` : ""}
                   </p>
@@ -253,18 +272,27 @@ function RegistrarRegistrations() {
       )}
 
       {rejectingReg && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setRejectingReg(null)}>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => setRejectingReg(null)}
+        >
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             className="w-full max-w-md rounded-xl bg-card p-6 shadow-lg"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="mb-2 font-heading text-lg font-bold text-foreground">Reject Application</h2>
+            <h2 className="mb-2 font-heading text-lg font-bold text-foreground">
+              Reject Application
+            </h2>
             <p className="mb-4 text-sm text-muted-foreground">
-              Provide a short reason for rejecting {rejectingReg.firstName} {rejectingReg.lastName}. This message will be saved with the application status.
+              Provide a short reason for rejecting {rejectingReg.firstName} {rejectingReg.lastName}.
+              This message will be saved with the application status.
             </p>
-            <label className="mb-2 block text-sm font-medium text-foreground" htmlFor="rejection-reason">
+            <label
+              className="mb-2 block text-sm font-medium text-foreground"
+              htmlFor="rejection-reason"
+            >
               Reason (optional)
             </label>
             <textarea

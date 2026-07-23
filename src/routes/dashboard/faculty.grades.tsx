@@ -30,11 +30,7 @@ import {
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
 import { fetchSubjects, type Subject } from "@/lib/api";
-import {
-  useGrades,
-  addOrUpdateGrade,
-  type GradeEntry,
-} from "@/lib/grades-store";
+import { useGrades, addOrUpdateGrade, type GradeEntry } from "@/lib/grades-store";
 import { fetchEnrollments, type StudentEnrollment } from "@/lib/api";
 import { fetchStudents, type StudentRegistration } from "@/lib/api";
 
@@ -80,7 +76,7 @@ function FacultyGrades() {
   const [facultySubjects, setFacultySubjects] = useState<Subject[]>([]);
   const [enrolledStudents, setEnrolledStudents] = useState<StudentRegistration[]>([]);
   const grades = useGrades();
-  
+
   const [selectedSubjectId, setSelectedSubjectId] = useState<string>("");
   const [gradingPeriod, setGradingPeriod] = useState<GradingPeriod>("prelim");
   const [detailedGrades, setDetailedGrades] = useState<Record<string, DetailedGrade>>({});
@@ -138,22 +134,37 @@ function FacultyGrades() {
         const studentId = g.studentId;
         if (!detailedMap[studentId]) {
           detailedMap[studentId] = {
-            prelim: { activities: { a1: 0, a2: 0, a3: 0 }, quizzes: { q1: 0, q2: 0, q3: 0 }, exam: 0, grade: 0 },
-            midterm: { activities: { a1: 0, a2: 0, a3: 0 }, quizzes: { q1: 0, q2: 0, q3: 0 }, exam: 0, grade: 0 },
-            final: { activities: { a1: 0, a2: 0, a3: 0 }, quizzes: { q1: 0, q2: 0, q3: 0 }, exam: 0, grade: 0 },
+            prelim: {
+              activities: { a1: 0, a2: 0, a3: 0 },
+              quizzes: { q1: 0, q2: 0, q3: 0 },
+              exam: 0,
+              grade: 0,
+            },
+            midterm: {
+              activities: { a1: 0, a2: 0, a3: 0 },
+              quizzes: { q1: 0, q2: 0, q3: 0 },
+              exam: 0,
+              grade: 0,
+            },
+            final: {
+              activities: { a1: 0, a2: 0, a3: 0 },
+              quizzes: { q1: 0, q2: 0, q3: 0 },
+              exam: 0,
+              grade: 0,
+            },
           };
         }
         const period = g.period as GradingPeriod;
         if (g.type === "activity") {
           const actNum = parseInt(g.component || "1");
-          const actKey = `a${actNum}` as 'a1' | 'a2' | 'a3';
+          const actKey = `a${actNum}` as "a1" | "a2" | "a3";
           detailedMap[studentId][period].activities = {
             ...detailedMap[studentId][period].activities,
             [actKey]: g.grade,
           };
         } else if (g.type === "quiz") {
           const quizNum = parseInt(g.component || "1");
-          const quizKey = `q${quizNum}` as 'q1' | 'q2' | 'q3';
+          const quizKey = `q${quizNum}` as "q1" | "q2" | "q3";
           detailedMap[studentId][period].quizzes = {
             ...detailedMap[studentId][period].quizzes,
             [quizKey]: g.grade,
@@ -181,39 +192,63 @@ function FacultyGrades() {
     const numValue = parseFloat(value);
     if (isNaN(numValue)) return;
 
-    setDetailedGrades((prev) => {
+      setDetailedGrades((prev) => {
       const next = { ...prev };
       if (!next[studentId]) {
         next[studentId] = {
-          prelim: { activities: { a1: 0, a2: 0, a3: 0 }, quizzes: { q1: 0, q2: 0, q3: 0 }, exam: 0, grade: 0 },
-          midterm: { activities: { a1: 0, a2: 0, a3: 0 }, quizzes: { q1: 0, q2: 0, q3: 0 }, exam: 0, grade: 0 },
-          final: { activities: { a1: 0, a2: 0, a3: 0 }, quizzes: { q1: 0, q2: 0, q3: 0 }, exam: 0, grade: 0 },
+          prelim: {
+            activities: { a1: 0, a2: 0, a3: 0 },
+            quizzes: { q1: 0, q2: 0, q3: 0 },
+            exam: 0,
+            grade: 0,
+          },
+          midterm: {
+            activities: { a1: 0, a2: 0, a3: 0 },
+            quizzes: { q1: 0, q2: 0, q3: 0 },
+            exam: 0,
+            grade: 0,
+          },
+          final: {
+            activities: { a1: 0, a2: 0, a3: 0 },
+            quizzes: { q1: 0, q2: 0, q3: 0 },
+            exam: 0,
+            grade: 0,
+          },
         };
       }
 
+      const clamped = Math.max(0, Math.min(100, numValue));
       if (type === "activity") {
-        const actKey = `a${component}` as 'a1' | 'a2' | 'a3';
+        const actKey = `a${component}` as "a1" | "a2" | "a3";
         next[studentId][period].activities = {
           ...next[studentId][period].activities,
-          [actKey]: numValue,
+          [actKey]: clamped,
         };
         const acts = Object.values(next[studentId][period].activities);
         const quizzes = Object.values(next[studentId][period].quizzes);
-        next[studentId][period].grade = computePeriodGrade(acts as number[], quizzes as number[], next[studentId][period].exam);
+        next[studentId][period].grade = computePeriodGrade(
+          acts as number[],
+          quizzes as number[],
+          next[studentId][period].exam,
+        );
       } else if (type === "quiz") {
-        const quizKey = `q${component}` as 'q1' | 'q2' | 'q3';
+        const quizKey = `q${component}` as "q1" | "q2" | "q3";
         next[studentId][period].quizzes = {
           ...next[studentId][period].quizzes,
-          [quizKey]: numValue,
+          [quizKey]: clamped,
         };
         const acts = Object.values(next[studentId][period].activities);
         const quizzes = Object.values(next[studentId][period].quizzes);
-        next[studentId][period].grade = computePeriodGrade(acts as number[], quizzes as number[], next[studentId][period].exam);
+        next[studentId][period].grade = computePeriodGrade(
+          acts as number[],
+          quizzes as number[],
+          next[studentId][period].exam,
+        );
       } else {
-        next[studentId][period].exam = numValue;
+        next[studentId][period].exam = clamped;
         const acts = Object.values(next[studentId][period].activities);
         const quizzes = Object.values(next[studentId][period].quizzes);
-        next[studentId][period].grade = computePeriodGrade(acts, quizzes, numValue);
+        next[studentId][period].grade = computePeriodGrade(acts, quizzes, clamped);
       }
 
       return next;
@@ -226,61 +261,145 @@ function FacultyGrades() {
     let count = 0;
     for (const studentId of Object.keys(detailedGrades)) {
       const detailed = detailedGrades[studentId];
-      
+
       for (let act = 1; act <= 3; act++) {
-        const grade = detailed.prelim.activities[`a${act}` as keyof typeof detailed.prelim.activities];
+        const grade =
+          detailed.prelim.activities[`a${act}` as keyof typeof detailed.prelim.activities];
         if (grade > 0) {
-          await addOrUpdateGrade(studentId, selectedSubjectId, grade, undefined, "prelim", "activity", String(act), "draft");
+          await addOrUpdateGrade(
+            studentId,
+            selectedSubjectId,
+            grade,
+            undefined,
+            "prelim",
+            "activity",
+            String(act),
+            "draft",
+          );
           count++;
         }
       }
       for (let quiz = 1; quiz <= 3; quiz++) {
         const grade = detailed.prelim.quizzes[`q${quiz}` as keyof typeof detailed.prelim.quizzes];
         if (grade > 0) {
-          await addOrUpdateGrade(studentId, selectedSubjectId, grade, undefined, "prelim", "quiz", String(quiz), "draft");
+          await addOrUpdateGrade(
+            studentId,
+            selectedSubjectId,
+            grade,
+            undefined,
+            "prelim",
+            "quiz",
+            String(quiz),
+            "draft",
+          );
           count++;
         }
       }
       if (detailed.prelim.exam > 0) {
-        await addOrUpdateGrade(studentId, selectedSubjectId, detailed.prelim.exam, undefined, "prelim", "exam", undefined, "draft");
+        await addOrUpdateGrade(
+          studentId,
+          selectedSubjectId,
+          detailed.prelim.exam,
+          undefined,
+          "prelim",
+          "exam",
+          undefined,
+          "draft",
+        );
         count++;
       }
 
       for (let act = 1; act <= 3; act++) {
-        const grade = detailed.midterm.activities[`a${act}` as keyof typeof detailed.midterm.activities];
+        const grade =
+          detailed.midterm.activities[`a${act}` as keyof typeof detailed.midterm.activities];
         if (grade > 0) {
-          await addOrUpdateGrade(studentId, selectedSubjectId, grade, undefined, "midterm", "activity", String(act), "draft");
+          await addOrUpdateGrade(
+            studentId,
+            selectedSubjectId,
+            grade,
+            undefined,
+            "midterm",
+            "activity",
+            String(act),
+            "draft",
+          );
           count++;
         }
       }
       for (let quiz = 1; quiz <= 3; quiz++) {
         const grade = detailed.midterm.quizzes[`q${quiz}` as keyof typeof detailed.midterm.quizzes];
         if (grade > 0) {
-          await addOrUpdateGrade(studentId, selectedSubjectId, grade, undefined, "midterm", "quiz", String(quiz), "draft");
+          await addOrUpdateGrade(
+            studentId,
+            selectedSubjectId,
+            grade,
+            undefined,
+            "midterm",
+            "quiz",
+            String(quiz),
+            "draft",
+          );
           count++;
         }
       }
       if (detailed.midterm.exam > 0) {
-        await addOrUpdateGrade(studentId, selectedSubjectId, detailed.midterm.exam, undefined, "midterm", "exam", undefined, "draft");
+        await addOrUpdateGrade(
+          studentId,
+          selectedSubjectId,
+          detailed.midterm.exam,
+          undefined,
+          "midterm",
+          "exam",
+          undefined,
+          "draft",
+        );
         count++;
       }
 
       for (let act = 1; act <= 3; act++) {
-        const grade = detailed.final.activities[`a${act}` as keyof typeof detailed.final.activities];
+        const grade =
+          detailed.final.activities[`a${act}` as keyof typeof detailed.final.activities];
         if (grade > 0) {
-          await addOrUpdateGrade(studentId, selectedSubjectId, grade, undefined, "final", "activity", String(act), "draft");
+          await addOrUpdateGrade(
+            studentId,
+            selectedSubjectId,
+            grade,
+            undefined,
+            "final",
+            "activity",
+            String(act),
+            "draft",
+          );
           count++;
         }
       }
       for (let quiz = 1; quiz <= 3; quiz++) {
         const grade = detailed.final.quizzes[`q${quiz}` as keyof typeof detailed.final.quizzes];
         if (grade > 0) {
-          await addOrUpdateGrade(studentId, selectedSubjectId, grade, undefined, "final", "quiz", String(quiz), "draft");
+          await addOrUpdateGrade(
+            studentId,
+            selectedSubjectId,
+            grade,
+            undefined,
+            "final",
+            "quiz",
+            String(quiz),
+            "draft",
+          );
           count++;
         }
       }
       if (detailed.final.exam > 0) {
-        await addOrUpdateGrade(studentId, selectedSubjectId, detailed.final.exam, undefined, "final", "exam", undefined, "draft");
+        await addOrUpdateGrade(
+          studentId,
+          selectedSubjectId,
+          detailed.final.exam,
+          undefined,
+          "final",
+          "exam",
+          undefined,
+          "draft",
+        );
         count++;
       }
 
@@ -290,7 +409,16 @@ function FacultyGrades() {
         detailed.final.grade || 0,
       );
       if (overall > 0) {
-        await addOrUpdateGrade(studentId, selectedSubjectId, overall, undefined, undefined, "overall", undefined, "draft");
+        await addOrUpdateGrade(
+          studentId,
+          selectedSubjectId,
+          overall,
+          undefined,
+          undefined,
+          "overall",
+          undefined,
+          "draft",
+        );
       }
     }
 
@@ -302,24 +430,81 @@ function FacultyGrades() {
   const handleSubmitGrades = async () => {
     if (!selectedSubjectId) return;
 
-    const detailed = detailedGrades;
-    let count = 0;
-    for (const studentId of Object.keys(detailed)) {
-      const studentDetailed = detailed[studentId];
-      const overall = computeOverallGrade(
-        studentDetailed.prelim.grade || 0,
-        studentDetailed.midterm.grade || 0,
-        studentDetailed.final.grade || 0,
-      );
-      
-      if (overall > 0) {
-        await addOrUpdateGrade(studentId, selectedSubjectId, overall, undefined, undefined, "overall", undefined, "submitted");
-        count++;
-      }
-    }
+    try {
+      for (const studentId of Object.keys(detailedGrades)) {
+        const detailed = detailedGrades[studentId];
 
-    setIsSubmitted(true);
-    toast.success(`Submitted grades for ${count} students`);
+        for (const period of ["prelim", "midterm", "final"] as GradingPeriod[]) {
+          for (let act = 1; act <= 3; act++) {
+            const grade =
+              detailed[period].activities[`a${act}` as keyof typeof detailed.prelim.activities];
+            if (grade > 0) {
+              await addOrUpdateGrade(
+                studentId,
+                selectedSubjectId,
+                grade,
+                undefined,
+                period,
+                "activity",
+                String(act),
+                "submitted",
+              );
+            }
+          }
+          for (let quiz = 1; quiz <= 3; quiz++) {
+            const grade =
+              detailed[period].quizzes[`q${quiz}` as keyof typeof detailed.prelim.quizzes];
+            if (grade > 0) {
+              await addOrUpdateGrade(
+                studentId,
+                selectedSubjectId,
+                grade,
+                undefined,
+                period,
+                "quiz",
+                String(quiz),
+                "submitted",
+              );
+            }
+          }
+          if (detailed[period].exam > 0) {
+            await addOrUpdateGrade(
+              studentId,
+              selectedSubjectId,
+              detailed[period].exam,
+              undefined,
+              period,
+              "exam",
+              undefined,
+              "submitted",
+            );
+          }
+        }
+
+        const overall = computeOverallGrade(
+          detailed.prelim.grade || 0,
+          detailed.midterm.grade || 0,
+          detailed.final.grade || 0,
+        );
+        if (overall > 0) {
+          await addOrUpdateGrade(
+            studentId,
+            selectedSubjectId,
+            overall,
+            undefined,
+            undefined,
+            "overall",
+            undefined,
+            "submitted",
+          );
+        }
+      }
+
+      setIsSubmitted(true);
+      toast.success(`Submitted grades for ${Object.keys(detailedGrades).length} students`);
+    } catch {
+      toast.error("Failed to submit grades");
+    }
   };
 
   const getGradeStatus = (grade: number) => {
@@ -345,8 +530,14 @@ function FacultyGrades() {
                 max="100"
                 step="0.25"
                 placeholder={`A${num}`}
-                value={detailed?.[period]?.activities?.[`a${num}` as keyof typeof detailed.prelim.activities] || ""}
-                onChange={(e) => handleDetailedGradeChange(studentId, period, "activity", num, e.target.value)}
+                value={
+                  detailed?.[period]?.activities?.[
+                    `a${num}` as keyof typeof detailed.prelim.activities
+                  ] || ""
+                }
+                onChange={(e) =>
+                  handleDetailedGradeChange(studentId, period, "activity", num, e.target.value)
+                }
                 className="w-12 text-center text-xs"
               />
             ))}
@@ -363,8 +554,14 @@ function FacultyGrades() {
                 max="100"
                 step="0.25"
                 placeholder={`Q${num}`}
-                value={detailed?.[period]?.quizzes?.[`q${num}` as keyof typeof detailed.prelim.quizzes] || ""}
-                onChange={(e) => handleDetailedGradeChange(studentId, period, "quiz", num, e.target.value)}
+                value={
+                  detailed?.[period]?.quizzes?.[
+                    `q${num}` as keyof typeof detailed.prelim.quizzes
+                  ] || ""
+                }
+                onChange={(e) =>
+                  handleDetailedGradeChange(studentId, period, "quiz", num, e.target.value)
+                }
                 className="w-12 text-center text-xs"
               />
             ))}
@@ -379,7 +576,9 @@ function FacultyGrades() {
             step="0.25"
             placeholder="Exam"
             value={detailed?.[period].exam || ""}
-            onChange={(e) => handleDetailedGradeChange(studentId, period, "exam", 0, e.target.value)}
+            onChange={(e) =>
+              handleDetailedGradeChange(studentId, period, "exam", 0, e.target.value)
+            }
             className="w-16 text-xs"
           />
         </div>
@@ -465,9 +664,7 @@ function FacultyGrades() {
           {enrolledStudents.length === 0 ? (
             <div className="flex flex-col items-center gap-2 rounded-lg bg-muted/50 px-4 py-8">
               <AlertCircle className="h-5 w-5 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">
-                No students enrolled in this subject.
-              </p>
+              <p className="text-sm text-muted-foreground">No students enrolled in this subject.</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -481,7 +678,12 @@ function FacultyGrades() {
                       Name
                     </TableHead>
                     <TableHead className="py-3 px-4 text-left text-xs font-semibold">
-                      {gradingPeriod === "prelim" ? "Prelim" : gradingPeriod === "midterm" ? "Midterm" : "Final"} Grades
+                      {gradingPeriod === "prelim"
+                        ? "Prelim"
+                        : gradingPeriod === "midterm"
+                          ? "Midterm"
+                          : "Final"}{" "}
+                      Grades
                     </TableHead>
                     <TableHead className="py-3 px-4 text-left text-xs font-semibold">
                       Period Grade
@@ -511,7 +713,9 @@ function FacultyGrades() {
                         </TableCell>
                         <TableCell className="py-3 px-4">
                           {status && (
-                            <span className={`inline-block px-2.5 py-1 rounded text-xs font-semibold ${status.color}`}>
+                            <span
+                              className={`inline-block px-2.5 py-1 rounded text-xs font-semibold ${status.color}`}
+                            >
                               {periodGrade.toFixed(2)} - {status.label}
                             </span>
                           )}
@@ -547,7 +751,8 @@ function FacultyGrades() {
           <DialogHeader>
             <DialogTitle>Submit Grades</DialogTitle>
             <DialogDescription>
-              Once submitted, grades become read-only and visible to students. Do you want to proceed?
+              Once submitted, grades become read-only and visible to students. Do you want to
+              proceed?
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

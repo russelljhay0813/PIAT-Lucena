@@ -43,12 +43,12 @@ function StudentGrades() {
     gwa > 0 && gwa <= 1.2
       ? "Summa Cum Laude"
       : gwa <= 1.45
-      ? "Magna Cum Laude"
-      : gwa <= 1.75
-      ? "Cum Laude"
-      : gwa <= 3.0
-      ? "Regular Standing"
-      : "—";
+        ? "Magna Cum Laude"
+        : gwa <= 1.75
+          ? "Cum Laude"
+          : gwa <= 3.0
+            ? "Regular Standing"
+            : "—";
 
   if (!user) {
     return (
@@ -134,13 +134,21 @@ function StudentGrades() {
                       transition={{ delay: i * 0.04 }}
                       className="border-t"
                     >
-                      <td className="px-4 py-3 font-heading text-xs font-bold text-foreground">{s.code}</td>
+                      <td className="px-4 py-3 font-heading text-xs font-bold text-foreground">
+                        {s.code}
+                      </td>
                       <td className="px-4 py-3 text-foreground">{s.title}</td>
                       <td className="px-4 py-3 text-xs text-muted-foreground">{s.instructor}</td>
                       <td className="px-4 py-3 text-center text-xs text-foreground">{s.units}</td>
-                      <td className="px-4 py-3 text-center font-heading text-sm font-bold text-accent">{grade.toFixed(2)}</td>
+                      <td className="px-4 py-3 text-center font-heading text-sm font-bold text-accent">
+                        {grade.toFixed(2)}
+                      </td>
                       <td className="px-4 py-3 text-right">
-                        <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${r.tone}`}>{r.label}</span>
+                        <span
+                          className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${r.tone}`}
+                        >
+                          {r.label}
+                        </span>
                       </td>
                     </motion.tr>
                   );

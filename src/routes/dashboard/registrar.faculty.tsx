@@ -61,15 +61,18 @@ function RegistrarFaculty() {
 
   const filteredFaculty = faculty.filter((f) => {
     const q = search.toLowerCase();
-    return (
+    const matchSearch =
       `${f.firstName} ${f.lastName}`.toLowerCase().includes(q) ||
       f.userId.toLowerCase().includes(q) ||
-      (f.email && f.email.toLowerCase().includes(q))
-    );
+      (f.email && f.email.toLowerCase().includes(q));
+    const hasSubjects = getFacultySubjects(f.id).length > 0;
+    return matchSearch && (search || hasSubjects);
   });
 
-  const getFacultySubjects = (facultyId: string) => subjects.filter((s) => s.facultyId === facultyId);
-  const getTotalUnits = (facultyId: string) => getFacultySubjects(facultyId).reduce((sum, s) => sum + s.units, 0);
+  const getFacultySubjects = (facultyId: string) =>
+    subjects.filter((s) => s.facultyId === facultyId);
+  const getTotalUnits = (facultyId: string) =>
+    getFacultySubjects(facultyId).reduce((sum, s) => sum + s.units, 0);
 
   const handleAssign = async () => {
     const errors: string[] = [];
@@ -121,7 +124,10 @@ function RegistrarFaculty() {
     const newFaculty = faculty.find((f) => f.id === newFacultyId);
     if (!newFaculty) return;
     try {
-      await updateSubject(reassignSubject.id, { facultyId: newFaculty.id, instructor: `${newFaculty.firstName} ${newFaculty.lastName}` });
+      await updateSubject(reassignSubject.id, {
+        facultyId: newFaculty.id,
+        instructor: `${newFaculty.firstName} ${newFaculty.lastName}`,
+      });
       toast.success("Subject reassigned");
       setReassignModal(false);
       setReassignSubject(null);
@@ -161,27 +167,52 @@ function RegistrarFaculty() {
   };
 
   const unassignedSubjects = subjects.filter((s) => !s.facultyId);
-  const availablePrograms = Array.from(new Set(unassignedSubjects.map((subject) => subject.program).filter(Boolean))).sort();
+  const availablePrograms = Array.from(
+    new Set(unassignedSubjects.map((subject) => subject.program).filter(Boolean)),
+  ).sort();
   const availableYearLevels = selectedProgram
-    ? Array.from(new Set(unassignedSubjects.filter((subject) => subject.program === selectedProgram).map((subject) => subject.yearLevel).filter(Boolean))).sort()
+    ? Array.from(
+        new Set(
+          unassignedSubjects
+            .filter((subject) => subject.program === selectedProgram)
+            .map((subject) => subject.yearLevel)
+            .filter(Boolean),
+        ),
+      ).sort()
     : [];
-  const availableSemesters = selectedProgram && selectedYearLevel
-    ? Array.from(new Set(unassignedSubjects.filter((subject) => subject.program === selectedProgram && subject.yearLevel === selectedYearLevel).map((subject) => subject.semester).filter(Boolean))).sort()
-    : [];
-  const availableSubjects = selectedProgram && selectedYearLevel && selectedSemester
-    ? unassignedSubjects.filter((subject) =>
-        subject.program === selectedProgram &&
-        subject.yearLevel === selectedYearLevel &&
-        subject.semester === selectedSemester &&
-        (subject.code.toLowerCase().includes(subjectSearch.toLowerCase()) || subject.title.toLowerCase().includes(subjectSearch.toLowerCase())),
-      )
-    : [];
+  const availableSemesters =
+    selectedProgram && selectedYearLevel
+      ? Array.from(
+          new Set(
+            unassignedSubjects
+              .filter(
+                (subject) =>
+                  subject.program === selectedProgram && subject.yearLevel === selectedYearLevel,
+              )
+              .map((subject) => subject.semester)
+              .filter(Boolean),
+          ),
+        ).sort()
+      : [];
+  const availableSubjects =
+    selectedProgram && selectedYearLevel && selectedSemester
+      ? unassignedSubjects.filter(
+          (subject) =>
+            subject.program === selectedProgram &&
+            subject.yearLevel === selectedYearLevel &&
+            subject.semester === selectedSemester &&
+            (subject.code.toLowerCase().includes(subjectSearch.toLowerCase()) ||
+              subject.title.toLowerCase().includes(subjectSearch.toLowerCase())),
+        )
+      : [];
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="font-heading text-xl font-bold text-foreground">Faculty Assignment</h1>
-        <p className="text-sm text-muted-foreground">Manage faculty subject assignments and workloads</p>
+        <p className="text-sm text-muted-foreground">
+          Manage faculty subject assignments and workloads
+        </p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
@@ -191,7 +222,9 @@ function RegistrarFaculty() {
         </div>
         <div className="rounded-xl border bg-card p-4 shadow-sm">
           <p className="text-xs text-muted-foreground">Unassigned Subjects</p>
-          <p className="mt-1 font-heading text-2xl font-bold text-warning">{unassignedSubjects.length}</p>
+          <p className="mt-1 font-heading text-2xl font-bold text-warning">
+            {unassignedSubjects.length}
+          </p>
         </div>
         <div className="rounded-xl border bg-card p-4 shadow-sm">
           <p className="text-xs text-muted-foreground">Total Subject Offerings</p>
@@ -214,10 +247,16 @@ function RegistrarFaculty() {
           <thead>
             <tr className="border-b bg-muted/50">
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Faculty ID</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Faculty Name</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Faculty Name
+              </th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Department</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Assigned Subjects</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Current Load (Units)</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Assigned Subjects
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Current Load (Units)
+              </th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Actions</th>
             </tr>
           </thead>
@@ -233,7 +272,9 @@ function RegistrarFaculty() {
                   className="border-b last:border-0 hover:bg-muted/30 transition-colors"
                 >
                   <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{f.userId}</td>
-                  <td className="px-4 py-3 font-medium text-foreground">{f.firstName} {f.lastName}</td>
+                  <td className="px-4 py-3 font-medium text-foreground">
+                    {f.firstName} {f.lastName}
+                  </td>
                   <td className="px-4 py-3 text-muted-foreground">{f.program || "—"}</td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-1">
@@ -241,7 +282,10 @@ function RegistrarFaculty() {
                         <span className="text-xs text-muted-foreground">None</span>
                       ) : (
                         assigned.map((s) => (
-                          <span key={s.id} className="rounded-full bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent">
+                          <span
+                            key={s.id}
+                            className="rounded-full bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent"
+                          >
                             {s.code}
                           </span>
                         ))
@@ -291,12 +335,15 @@ function RegistrarFaculty() {
             )}
             <div className="space-y-1.5">
               <Label>Program</Label>
-              <Select value={selectedProgram} onValueChange={(value) => {
-                setSelectedProgram(value);
-                setSelectedYearLevel("");
-                setSelectedSemester("");
-                setSelectedSubjectId("");
-              }}>
+              <Select
+                value={selectedProgram}
+                onValueChange={(value) => {
+                  setSelectedProgram(value);
+                  setSelectedYearLevel("");
+                  setSelectedSemester("");
+                  setSelectedSubjectId("");
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select Program" />
                 </SelectTrigger>
@@ -316,17 +363,22 @@ function RegistrarFaculty() {
 
             <div className="space-y-1.5">
               <Label>Year Level</Label>
-              <Select value={selectedYearLevel} onValueChange={(value) => {
-                setSelectedYearLevel(value);
-                setSelectedSemester("");
-                setSelectedSubjectId("");
-              }}>
+              <Select
+                value={selectedYearLevel}
+                onValueChange={(value) => {
+                  setSelectedYearLevel(value);
+                  setSelectedSemester("");
+                  setSelectedSubjectId("");
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select Year Level" />
                 </SelectTrigger>
                 <SelectContent>
                   {availableYearLevels.length === 0 ? (
-                    <div className="p-2 text-xs text-muted-foreground">No year levels available</div>
+                    <div className="p-2 text-xs text-muted-foreground">
+                      No year levels available
+                    </div>
                   ) : (
                     availableYearLevels.map((yearLevel) => (
                       <SelectItem key={yearLevel} value={yearLevel}>
@@ -340,10 +392,13 @@ function RegistrarFaculty() {
 
             <div className="space-y-1.5">
               <Label>Semester</Label>
-              <Select value={selectedSemester} onValueChange={(value) => {
-                setSelectedSemester(value);
-                setSelectedSubjectId("");
-              }}>
+              <Select
+                value={selectedSemester}
+                onValueChange={(value) => {
+                  setSelectedSemester(value);
+                  setSelectedSubjectId("");
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select Semester" />
                 </SelectTrigger>
@@ -379,8 +434,12 @@ function RegistrarFaculty() {
                     availableSubjects.map((subject) => (
                       <SelectItem key={subject.id} value={subject.id}>
                         <div className="flex flex-col text-left">
-                          <span className="font-medium">{subject.code} — {subject.title}</span>
-                          <span className="text-xs text-muted-foreground">{subject.yearLevel || "—"} • {subject.semester || "—"}</span>
+                          <span className="font-medium">
+                            {subject.code} — {subject.title}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {subject.yearLevel || "—"} • {subject.semester || "—"}
+                          </span>
                         </div>
                       </SelectItem>
                     ))
@@ -396,8 +455,12 @@ function RegistrarFaculty() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAssignModal(false)}>Cancel</Button>
-            <Button onClick={handleAssign} disabled={!selectedSubjectId}>Assign</Button>
+            <Button variant="outline" onClick={() => setAssignModal(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleAssign} disabled={!selectedSubjectId}>
+              Assign
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -428,8 +491,12 @@ function RegistrarFaculty() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setReassignModal(false)}>Cancel</Button>
-            <Button onClick={handleReassign} disabled={!newFacultyId}>Reassign</Button>
+            <Button variant="outline" onClick={() => setReassignModal(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleReassign} disabled={!newFacultyId}>
+              Reassign
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

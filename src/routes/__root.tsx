@@ -32,20 +32,43 @@ export const Route = createRootRoute({
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "PIAT — Learning Management System" },
-      { name: "description", content: "Secure role-based learning management system for Philtech Institute Of Arts And Technology." },
+      {
+        name: "description",
+        content:
+          "Secure role-based learning management system for Philtech Institute Of Arts And Technology.",
+      },
       { property: "og:title", content: "PIAT — Learning Management System" },
       { name: "twitter:title", content: "PIAT — Learning Management System" },
-      { property: "og:description", content: "Secure role-based learning management system for Philtech Institute Of Arts And Technology." },
-      { name: "twitter:description", content: "Secure role-based learning management system for Philtech Institute Of Arts And Technology." },
-      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/098aeacb-99d0-4375-84ba-09cf436564b8/id-preview-1bd0304d--55e99e89-6fed-47e6-ad21-cc53ee2a09bc.lovable.app-1778314362518.png" },
-      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/098aeacb-99d0-4375-84ba-09cf436564b8/id-preview-1bd0304d--55e99e89-6fed-47e6-ad21-cc53ee2a09bc.lovable.app-1778314362518.png" },
+      {
+        property: "og:description",
+        content:
+          "Secure role-based learning management system for Philtech Institute Of Arts And Technology.",
+      },
+      {
+        name: "twitter:description",
+        content:
+          "Secure role-based learning management system for Philtech Institute Of Arts And Technology.",
+      },
+      {
+        property: "og:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/098aeacb-99d0-4375-84ba-09cf436564b8/id-preview-1bd0304d--55e99e89-6fed-47e6-ad21-cc53ee2a09bc.lovable.app-1778314362518.png",
+      },
+      {
+        name: "twitter:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/098aeacb-99d0-4375-84ba-09cf436564b8/id-preview-1bd0304d--55e99e89-6fed-47e6-ad21-cc53ee2a09bc.lovable.app-1778314362518.png",
+      },
       { name: "twitter:card", content: "summary_large_image" },
       { property: "og:type", content: "website" },
     ],
     links: [
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
-      { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Manrope:wght@400;500;600;700&display=swap" },
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Manrope:wght@400;500;600;700&display=swap",
+      },
       { rel: "stylesheet", href: appCss },
     ],
   }),

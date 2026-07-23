@@ -10,7 +10,13 @@ interface NotificationsPopoverProps {
   userId: string | undefined;
 }
 
-function NotificationItem({ notification, onMarkAsRead }: { notification: Notification; onMarkAsRead: (id: string) => void }) {
+function NotificationItem({
+  notification,
+  onMarkAsRead,
+}: {
+  notification: Notification;
+  onMarkAsRead: (id: string) => void;
+}) {
   const getIcon = (type: Notification["type"]) => {
     switch (type) {
       case "grade":

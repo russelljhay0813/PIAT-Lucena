@@ -73,6 +73,8 @@ export function normalizeUserPayload(input = {}) {
     status: input.status ? String(input.status) : "active",
     program: input.program ? String(input.program) : null,
     yearLevel: input.yearLevel ? String(input.yearLevel) : null,
+    semester: input.semester ? String(input.semester) : null,
+    academicYear: input.academicYear ? String(input.academicYear) : null,
     createdAt: input.createdAt ?? new Date().toISOString(),
     temporaryPassword: input.temporaryPassword ?? null,
     firstLoginAt: input.firstLoginAt ?? null,

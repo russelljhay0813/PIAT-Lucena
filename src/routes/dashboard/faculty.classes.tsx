@@ -52,7 +52,7 @@ function FacultyClassList() {
           .map((e) => e.studentId);
         const allStudents = await fetchStudents();
         setEnrolledStudents(allStudents.filter((s) => enrolledForSubject.includes(s.studentId)));
-        
+
         const allGrades = await fetchGrades(selectedSubject);
         setGrades(allGrades);
 
@@ -61,7 +61,9 @@ function FacultyClassList() {
           try {
             const records = await fetchAttendanceRecords(selectedSubject, undefined, studentId);
             const latest = records.sort((a, b) => b.updatedAt - a.updatedAt)[0];
-            statusMap[studentId] = latest ? latest.status.charAt(0).toUpperCase() + latest.status.slice(1) : "—";
+            statusMap[studentId] = latest
+              ? latest.status.charAt(0).toUpperCase() + latest.status.slice(1)
+              : "—";
           } catch {
             statusMap[studentId] = "—";
           }
@@ -170,9 +172,15 @@ function FacultyClassList() {
                         {student.firstName} {student.lastName}
                       </td>
                       <td className="py-2 pr-4 text-muted-foreground">{student.program || "—"}</td>
-                      <td className="py-2 pr-4 text-muted-foreground">{student.yearLevel || "—"}</td>
-                       <td className="py-2 pr-4 text-muted-foreground">{attendanceStatus[student.studentId] || "—"}</td>
-                      <td className="py-2 pr-4 font-medium text-foreground">{getStudentGrade(student.studentId)}</td>
+                      <td className="py-2 pr-4 text-muted-foreground">
+                        {student.yearLevel || "—"}
+                      </td>
+                      <td className="py-2 pr-4 text-muted-foreground">
+                        {attendanceStatus[student.studentId] || "—"}
+                      </td>
+                      <td className="py-2 pr-4 font-medium text-foreground">
+                        {getStudentGrade(student.studentId)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

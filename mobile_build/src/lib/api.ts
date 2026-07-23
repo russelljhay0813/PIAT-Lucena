@@ -1,8 +1,11 @@
 import Constants from "expo-constants";
-import { getAuthToken } from "./storage";
+import { getAuthData, getAuthToken } from "./storage";
 
-const API_BASE =
-  String(Constants.expoConfig?.extra?.API_BASE ?? process.env.EXPO_PUBLIC_API_BASE ?? "http://localhost:4000");
+const API_BASE = String(
+  Constants.expoConfig?.extra?.API_BASE ??
+    process.env.EXPO_PUBLIC_API_BASE ??
+    "http://localhost:4000",
+);
 const REQUEST_TIMEOUT = 20000;
 
 async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
@@ -10,12 +13,20 @@ async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
   try {
     const token = await getAuthToken();
+    const authData = token ? await getAuthData() : null;
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       ...(opts.headers ?? {}),
     };
     if (token) {
       headers["Authorization"] = `Bearer ${token}`;
+    }
+    if (authData?.user) {
+      headers["x-user-id"] = authData.user.id;
+      headers["x-user-role"] = authData.user.role;
+      if (authData.user.studentId) {
+        headers["x-user-student-id"] = authData.user.studentId;
+      }
     }
 
     const response = await fetch(`${API_BASE}${path}`, {
@@ -134,7 +145,9 @@ export async function fetchFacultySubjects(): Promise<SubjectOffering[]> {
 }
 
 export async function fetchSubjectStudents(subjectId: string): Promise<StudentRecord[]> {
-  return request<StudentRecord[]>(`/api/faculty/subjects/${encodeURIComponent(subjectId)}/students`);
+  return request<StudentRecord[]>(
+    `/api/faculty/subjects/${encodeURIComponent(subjectId)}/students`,
+  );
 }
 
 export async function saveAttendance(attendance: AttendancePayload) {
@@ -144,7 +157,9 @@ export async function saveAttendance(attendance: AttendancePayload) {
   });
 }
 
-export async function saveAttendanceBulk(records: AttendanceBulkPayload[]): Promise<BulkAttendanceResult[]> {
+export async function saveAttendanceBulk(
+  records: AttendanceBulkPayload[],
+): Promise<BulkAttendanceResult[]> {
   return request<BulkAttendanceResult[]>("/api/attendance/bulk", {
     method: "POST",
     body: JSON.stringify({ records }),

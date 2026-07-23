@@ -25,7 +25,7 @@ function FacultyProfile() {
     try {
       const allUsers = await fetchUsers();
       const facultyUser = allUsers.find((u) => u.id === user.id);
-      setFacultyInfo(facultyUser as UserAccount || null);
+      setFacultyInfo((facultyUser as UserAccount) || null);
     } catch {
       setFacultyInfo(null);
     }
@@ -88,9 +88,7 @@ function FacultyProfile() {
     <div className="space-y-6">
       <div>
         <h1 className="font-heading text-xl font-bold text-foreground">Profile</h1>
-        <p className="text-sm text-muted-foreground">
-          Manage your profile information
-        </p>
+        <p className="text-sm text-muted-foreground">Manage your profile information</p>
       </div>
 
       <div className="rounded-xl border bg-card p-5 shadow-sm">
@@ -100,7 +98,9 @@ function FacultyProfile() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div>
             <span className="text-xs text-muted-foreground">Faculty ID</span>
-            <p className="font-medium text-foreground font-mono">{user?.studentId || user?.id || "—"}</p>
+            <p className="font-medium text-foreground font-mono">
+              {user?.studentId || user?.id || "—"}
+            </p>
           </div>
           <div>
             <span className="text-xs text-muted-foreground">Full Name</span>
@@ -112,7 +112,9 @@ function FacultyProfile() {
           </div>
           <div>
             <span className="text-xs text-muted-foreground">Department</span>
-            <p className="font-medium text-foreground">{user?.program || facultyInfo?.program || "—"}</p>
+            <p className="font-medium text-foreground">
+              {user?.program || facultyInfo?.program || "—"}
+            </p>
           </div>
         </div>
       </div>
@@ -123,7 +125,9 @@ function FacultyProfile() {
         </h2>
         <div className="grid gap-4 sm:grid-cols-2 max-w-md">
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground" htmlFor="new-password">New Password</label>
+            <label className="text-xs font-medium text-muted-foreground" htmlFor="new-password">
+              New Password
+            </label>
             <input
               id="new-password"
               type="password"
@@ -137,7 +141,9 @@ function FacultyProfile() {
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground" htmlFor="confirm-password">Confirm Password</label>
+            <label className="text-xs font-medium text-muted-foreground" htmlFor="confirm-password">
+              Confirm Password
+            </label>
             <input
               id="confirm-password"
               type="password"
@@ -177,13 +183,12 @@ function FacultyProfile() {
         ) : (
           <div className="space-y-2">
             {assignedSubjects.map((s) => (
-              <div
-                key={s.id}
-                className="flex items-center gap-3 rounded-lg bg-muted/50 px-4 py-2"
-              >
+              <div key={s.id} className="flex items-center gap-3 rounded-lg bg-muted/50 px-4 py-2">
                 <BookOpen className="h-4 w-4 text-accent" />
                 <div>
-                  <p className="font-medium text-foreground">{s.code} - {s.title}</p>
+                  <p className="font-medium text-foreground">
+                    {s.code} - {s.title}
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     {s.units} units · {s.schedule} · {s.room}
                   </p>

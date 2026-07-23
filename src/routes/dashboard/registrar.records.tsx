@@ -1,9 +1,19 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useCallback } from "react";
-import { Search, Eye, Printer } from "lucide-react";
+import { Search, Eye, Printer, CheckCircle2 } from "lucide-react";
 import { motion } from "framer-motion";
-import { getRegistrations, REGISTRATIONS_EVENT, type StudentRegistration } from "@/lib/registrations-store";
-import { fetchGrades, fetchEnrollments, fetchAttendanceRecords, fetchSubjects } from "@/lib/api";
+import {
+  getRegistrations,
+  REGISTRATIONS_EVENT,
+  type StudentRegistration,
+} from "@/lib/registrations-store";
+import {
+  fetchGrades,
+  fetchEnrollments,
+  fetchAttendanceRecords,
+  fetchSubjects,
+  finalizeStudentRecords,
+} from "@/lib/api";
 import { useSubjects } from "@/lib/subjects-store";
 
 export const Route = createFileRoute("/dashboard/registrar/records")({
@@ -96,6 +106,25 @@ function RegistrarRecords() {
     window.print();
   };
 
+  const handleFinalizeRecords = async (student: StudentRegistration) => {
+    if (!confirm(`Finalize all academic records for ${student.firstName} ${student.lastName}?`))
+      return;
+    try {
+      const result = await finalizeStudentRecords(student.studentId, {
+        academicYear: student.academicYear || undefined,
+        semester: student.semester || undefined,
+      });
+      import("sonner").then(({ toast }) => {
+        toast.success(`Academic records finalized. ${result.finalizedCount} records updated.`);
+      });
+      loadGrades();
+    } catch (err: any) {
+      import("sonner").then(({ toast }) => {
+        toast.error(err?.message || "Failed to finalize records.");
+      });
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -130,7 +159,10 @@ function RegistrarRecords() {
           <tbody>
             {filtered.map((r, i) => {
               const grades = gradesMap[r.studentId] || [];
-              const avg = grades.length > 0 ? grades.reduce((sum, g: any) => sum + g.grade, 0) / grades.length : null;
+              const avg =
+                grades.length > 0
+                  ? grades.reduce((sum, g: any) => sum + g.grade, 0) / grades.length
+                  : null;
               return (
                 <motion.tr
                   key={r.id}
@@ -139,15 +171,27 @@ function RegistrarRecords() {
                   transition={{ delay: i * 0.04 }}
                   className="border-b last:border-0 hover:bg-muted/30 transition-colors"
                 >
-                  <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{r.studentId}</td>
-                  <td className="px-4 py-3 font-medium text-foreground">{r.firstName} {r.lastName}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
+                    {r.studentId}
+                  </td>
+                  <td className="px-4 py-3 font-medium text-foreground">
+                    {r.firstName} {r.lastName}
+                  </td>
                   <td className="px-4 py-3 text-muted-foreground">{r.program}</td>
                   <td className="px-4 py-3 text-muted-foreground">{r.yearLevel}</td>
                   <td className="px-4 py-3 font-medium text-foreground">
                     {avg !== null ? avg.toFixed(2) : "—"}
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">
-                    {r.yearLevel ? r.yearLevel.replace(" Year", "") : "—"}
+                    {(() => {
+                      const studentGrades = gradesMap[r.studentId] || [];
+                      if (studentGrades.length === 0) return "—";
+                      const totalUnits = studentGrades.reduce((sum: number, g: any) => {
+                        const subj = subjects.find((s: any) => s.id === g.subjectId);
+                        return sum + (subj?.units || 0);
+                      }, 0);
+                      return totalUnits;
+                    })()}
                   </td>
                   <td className="px-4 py-3">
                     <span className="rounded-full px-2 py-0.5 text-xs font-medium bg-success/10 text-success">
@@ -161,6 +205,12 @@ function RegistrarRecords() {
                         className="inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-xs font-medium text-foreground hover:bg-muted"
                       >
                         <Eye className="h-3.5 w-3.5" /> View
+                      </button>
+                      <button
+                        onClick={() => handleFinalizeRecords(r)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-xs font-medium text-foreground hover:bg-muted"
+                      >
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Finalize
                       </button>
                       <button
                         onClick={handlePrint}
@@ -185,7 +235,10 @@ function RegistrarRecords() {
       </div>
 
       {selectedStudent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setSelectedStudent(null)}>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => setSelectedStudent(null)}
+        >
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -194,16 +247,24 @@ function RegistrarRecords() {
           >
             <div className="flex items-center justify-between">
               <h2 className="font-heading text-lg font-bold text-foreground">Academic Record</h2>
-              <button onClick={() => setSelectedStudent(null)} className="text-muted-foreground hover:text-foreground">✕</button>
+              <button
+                onClick={() => setSelectedStudent(null)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                ✕
+              </button>
             </div>
             <p className="text-sm text-muted-foreground mt-1">
-              {selectedStudent.firstName} {selectedStudent.lastName} | {selectedStudent.studentId} | {selectedStudent.program}
+              {selectedStudent.firstName} {selectedStudent.lastName} | {selectedStudent.studentId} |{" "}
+              {selectedStudent.program}
             </p>
 
             <div className="mt-4 grid gap-4 sm:grid-cols-3">
               <div className="rounded-lg border bg-muted/30 p-3">
                 <p className="text-xs text-muted-foreground">Academic Standing</p>
-                <p className="font-heading text-base font-bold text-foreground">{getAcademicStanding(selectedStudent.studentId)}</p>
+                <p className="font-heading text-base font-bold text-foreground">
+                  {getAcademicStanding(selectedStudent.studentId)}
+                </p>
               </div>
               <div className="rounded-lg border bg-muted/30 p-3">
                 <p className="text-xs text-muted-foreground">Attendance Summary</p>
@@ -215,7 +276,8 @@ function RegistrarRecords() {
                       {getAttendanceSummary().total} total
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      P: {getAttendanceSummary().present} | A: {getAttendanceSummary().absent} | L: {getAttendanceSummary().late}
+                      P: {getAttendanceSummary().present} | A: {getAttendanceSummary().absent} | L:{" "}
+                      {getAttendanceSummary().late}
                     </p>
                   </>
                 )}
@@ -224,22 +286,37 @@ function RegistrarRecords() {
                 <p className="text-xs text-muted-foreground">GPA</p>
                 <p className="font-heading text-base font-bold text-foreground">
                   {gradesMap[selectedStudent.studentId]?.length > 0
-                    ? (gradesMap[selectedStudent.studentId].reduce((sum, g: any) => sum + g.grade, 0) / gradesMap[selectedStudent.studentId].length).toFixed(2)
+                    ? (
+                        gradesMap[selectedStudent.studentId].reduce(
+                          (sum, g: any) => sum + g.grade,
+                          0,
+                        ) / gradesMap[selectedStudent.studentId].length
+                      ).toFixed(2)
                     : "—"}
                 </p>
               </div>
             </div>
 
             <div className="mt-4">
-              <h3 className="font-heading text-sm font-semibold text-foreground mb-2">Enrolled Subjects & Grades</h3>
+              <h3 className="font-heading text-sm font-semibold text-foreground mb-2">
+                Enrolled Subjects & Grades
+              </h3>
               <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b bg-muted/50">
-                      <th className="px-4 py-2 text-left font-medium text-muted-foreground">Code</th>
-                      <th className="px-4 py-2 text-left font-medium text-muted-foreground">Title</th>
-                      <th className="px-4 py-2 text-left font-medium text-muted-foreground">Grade</th>
-                      <th className="px-4 py-2 text-left font-medium text-muted-foreground">Status</th>
+                      <th className="px-4 py-2 text-left font-medium text-muted-foreground">
+                        Code
+                      </th>
+                      <th className="px-4 py-2 text-left font-medium text-muted-foreground">
+                        Title
+                      </th>
+                      <th className="px-4 py-2 text-left font-medium text-muted-foreground">
+                        Grade
+                      </th>
+                      <th className="px-4 py-2 text-left font-medium text-muted-foreground">
+                        Status
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -247,20 +324,27 @@ function RegistrarRecords() {
                       const subj = subjects.find((s: any) => s.id === g.subjectId);
                       return (
                         <tr key={g.id} className={idx > 0 ? "border-t" : ""}>
-                          <td className="px-4 py-2 font-mono text-xs text-foreground">{subj?.code || "—"}</td>
+                          <td className="px-4 py-2 font-mono text-xs text-foreground">
+                            {subj?.code || "—"}
+                          </td>
                           <td className="px-4 py-2 text-foreground">{subj?.title || "Unknown"}</td>
                           <td className="px-4 py-2 font-medium text-foreground">{g.grade}</td>
                           <td className="px-4 py-2">
-                            <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${g.status === 'finalized' ? 'bg-success/10 text-success' : g.status === 'submitted' ? 'bg-accent/10 text-accent' : 'bg-warning/10 text-warning'}`}>
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-xs font-medium ${g.status === "finalized" ? "bg-success/10 text-success" : g.status === "submitted" ? "bg-accent/10 text-accent" : "bg-warning/10 text-warning"}`}
+                            >
                               {g.status}
                             </span>
                           </td>
                         </tr>
                       );
                     })}
-                    {(!gradesMap[selectedStudent.studentId] || gradesMap[selectedStudent.studentId].length === 0) && (
+                    {(!gradesMap[selectedStudent.studentId] ||
+                      gradesMap[selectedStudent.studentId].length === 0) && (
                       <tr>
-                        <td colSpan={4} className="px-4 py-6 text-center text-muted-foreground">No grades recorded yet</td>
+                        <td colSpan={4} className="px-4 py-6 text-center text-muted-foreground">
+                          No grades recorded yet
+                        </td>
                       </tr>
                     )}
                   </tbody>

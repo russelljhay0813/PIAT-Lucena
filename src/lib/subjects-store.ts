@@ -1,5 +1,11 @@
 import { useEffect, useState, useCallback } from "react";
-import { fetchSubjects as apiFetchSubjects, createSubject as apiCreateSubject, updateSubjectApi as apiUpdateSubject, deleteSubjectApi as apiDeleteSubject, fetchCurriculum } from "./api";
+import {
+  fetchSubjects as apiFetchSubjects,
+  createSubject as apiCreateSubject,
+  updateSubjectApi as apiUpdateSubject,
+  deleteSubjectApi as apiDeleteSubject,
+  fetchCurriculum,
+} from "./api";
 
 export interface Subject {
   id: string;

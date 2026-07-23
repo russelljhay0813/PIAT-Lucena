@@ -2,7 +2,12 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { FileText, Users, BookOpen, GraduationCap, Download } from "lucide-react";
-import { fetchReportEnrollment, fetchReportFacultyLoad, fetchReportStudents, fetchReportCurriculum } from "@/lib/api";
+import {
+  fetchReportEnrollment,
+  fetchReportFacultyLoad,
+  fetchReportStudents,
+  fetchReportCurriculum,
+} from "@/lib/api";
 
 type ReportType = "enrollment" | "faculty" | "students" | "curriculum";
 
@@ -46,24 +51,47 @@ function RegistrarReports() {
   }, [reportType]);
 
   const handleExport = () => {
+    const csvEscape = (value: unknown): string => {
+      const text = value == null ? "" : String(value);
+      if (text.includes(",") || text.includes('"') || text.includes("\n") || text.includes("\r")) {
+        return `"${text.replace(/"/g, '""')}"`;
+      }
+      return text;
+    };
+
     let csv = "";
     if (reportType === "enrollment" && enrollmentData) {
       csv = "Program,Count\n";
-      Object.entries(enrollmentData.byProgram || {}).forEach(([k, v]) => csv += `${k},${v}\n`);
+      Object.entries(enrollmentData.byProgram || {}).forEach(
+        ([k, v]) => (csv += `${csvEscape(k)},${csvEscape(v)}\n`),
+      );
       csv += "\nYear Level,Count\n";
-      Object.entries(enrollmentData.byYear || {}).forEach(([k, v]) => csv += `${k},${v}\n`);
+      Object.entries(enrollmentData.byYear || {}).forEach(
+        ([k, v]) => (csv += `${csvEscape(k)},${csvEscape(v)}\n`),
+      );
       csv += "\nSemester,Count\n";
-      Object.entries(enrollmentData.bySemester || {}).forEach(([k, v]) => csv += `${k},${v}\n`);
-      csv += `\nTotal Enrolled,${enrollmentData.totalEnrolled || 0}\n`;
+      Object.entries(enrollmentData.bySemester || {}).forEach(
+        ([k, v]) => (csv += `${csvEscape(k)},${csvEscape(v)}\n`),
+      );
+      csv += `\nTotal Enrolled,${csvEscape(enrollmentData.totalEnrolled || 0)}\n`;
     } else if (reportType === "faculty") {
       csv = "Faculty ID,Name,Subjects,Units\n";
-      facultyData.forEach((f) => csv += `${f.facultyId},${f.name},${f.subjectCount},${f.totalUnits}\n`);
+      facultyData.forEach(
+        (f) =>
+          (csv += `${csvEscape(f.facultyId)},${csvEscape(f.name)},${csvEscape(f.subjectCount)},${csvEscape(f.totalUnits)}\n`),
+      );
     } else if (reportType === "students") {
       csv = "Student ID,Name,Program,Year Level,Semester\n";
-      studentsData.forEach((s) => csv += `${s.studentId},"${s.firstName} ${s.lastName}",${s.program},${s.yearLevel},${s.semester}\n`);
+      studentsData.forEach(
+        (s) =>
+          (csv += `${csvEscape(s.studentId)},${csvEscape(`${s.firstName} ${s.lastName}`)},${csvEscape(s.program)},${csvEscape(s.yearLevel)},${csvEscape(s.semester)}\n`),
+      );
     } else if (reportType === "curriculum") {
       csv = "Program,Year,Semester,Subject Code,Title,Units\n";
-      curriculumData.forEach((s) => csv += `${s.name},${s.yearLevel},${s.semester},${s.subjectCode},"${s.subjectTitle}",${s.units}\n`);
+      curriculumData.forEach(
+        (s) =>
+          (csv += `${csvEscape(s.name)},${csvEscape(s.yearLevel)},${csvEscape(s.semester)},${csvEscape(s.subjectCode)},${csvEscape(s.subjectTitle)},${csvEscape(s.units)}\n`),
+      );
     }
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -75,10 +103,30 @@ function RegistrarReports() {
   };
 
   const reports = [
-    { id: "enrollment" as ReportType, label: "Enrollment Report", icon: Users, desc: "Student enrollment by program, year, and semester" },
-    { id: "faculty" as ReportType, label: "Faculty Load Report", icon: Users, desc: "Subject assignments and teaching load per faculty" },
-    { id: "students" as ReportType, label: "Student List", icon: GraduationCap, desc: "Complete list of approved students" },
-    { id: "curriculum" as ReportType, label: "Curriculum Report", icon: BookOpen, desc: "All curriculum subjects across programs" },
+    {
+      id: "enrollment" as ReportType,
+      label: "Enrollment Report",
+      icon: Users,
+      desc: "Student enrollment by program, year, and semester",
+    },
+    {
+      id: "faculty" as ReportType,
+      label: "Faculty Load Report",
+      icon: Users,
+      desc: "Subject assignments and teaching load per faculty",
+    },
+    {
+      id: "students" as ReportType,
+      label: "Student List",
+      icon: GraduationCap,
+      desc: "Complete list of approved students",
+    },
+    {
+      id: "curriculum" as ReportType,
+      label: "Curriculum Report",
+      icon: BookOpen,
+      desc: "All curriculum subjects across programs",
+    },
   ];
 
   return (
@@ -126,7 +174,9 @@ function RegistrarReports() {
         <div className="rounded-xl border bg-card p-5 shadow-sm">
           <div className="grid gap-4 sm:grid-cols-3">
             <div>
-              <h3 className="font-heading text-sm font-semibold text-foreground mb-2">By Program</h3>
+              <h3 className="font-heading text-sm font-semibold text-foreground mb-2">
+                By Program
+              </h3>
               {Object.entries(enrollmentData.byProgram || {}).map(([k, v]) => (
                 <div key={k} className="flex justify-between py-1 border-b last:border-0">
                   <span className="text-xs text-muted-foreground">{k}</span>
@@ -135,7 +185,9 @@ function RegistrarReports() {
               ))}
             </div>
             <div>
-              <h3 className="font-heading text-sm font-semibold text-foreground mb-2">By Year Level</h3>
+              <h3 className="font-heading text-sm font-semibold text-foreground mb-2">
+                By Year Level
+              </h3>
               {Object.entries(enrollmentData.byYear || {}).map(([k, v]) => (
                 <div key={k} className="flex justify-between py-1 border-b last:border-0">
                   <span className="text-xs text-muted-foreground">{k}</span>
@@ -144,7 +196,9 @@ function RegistrarReports() {
               ))}
             </div>
             <div>
-              <h3 className="font-heading text-sm font-semibold text-foreground mb-2">By Semester</h3>
+              <h3 className="font-heading text-sm font-semibold text-foreground mb-2">
+                By Semester
+              </h3>
               {Object.entries(enrollmentData.bySemester || {}).map(([k, v]) => (
                 <div key={k} className="flex justify-between py-1 border-b last:border-0">
                   <span className="text-xs text-muted-foreground">{k}</span>
@@ -154,7 +208,10 @@ function RegistrarReports() {
             </div>
           </div>
           <div className="mt-4 pt-4 border-t">
-            <p className="text-xs text-muted-foreground">Total Enrolled: <span className="font-bold text-foreground">{enrollmentData.totalEnrolled || 0}</span></p>
+            <p className="text-xs text-muted-foreground">
+              Total Enrolled:{" "}
+              <span className="font-bold text-foreground">{enrollmentData.totalEnrolled || 0}</span>
+            </p>
           </div>
         </div>
       ) : reportType === "faculty" && facultyData.length > 0 ? (
@@ -162,10 +219,16 @@ function RegistrarReports() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50">
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Faculty ID</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                  Faculty ID
+                </th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Name</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Assigned Subjects</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Total Units</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                  Assigned Subjects
+                </th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                  Total Units
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -177,7 +240,9 @@ function RegistrarReports() {
                   transition={{ delay: i * 0.04 }}
                   className="border-b last:border-0 hover:bg-muted/30"
                 >
-                  <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{f.facultyId}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
+                    {f.facultyId}
+                  </td>
                   <td className="px-4 py-3 font-medium text-foreground">{f.name}</td>
                   <td className="px-4 py-3 text-muted-foreground">{f.subjectCount}</td>
                   <td className="px-4 py-3 text-muted-foreground">{f.totalUnits}</td>
@@ -191,10 +256,14 @@ function RegistrarReports() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50">
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Student ID</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                  Student ID
+                </th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Name</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Program</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Year Level</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                  Year Level
+                </th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Semester</th>
               </tr>
             </thead>
@@ -207,7 +276,9 @@ function RegistrarReports() {
                   transition={{ delay: i * 0.04 }}
                   className="border-b last:border-0 hover:bg-muted/30"
                 >
-                  <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{s.studentId}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
+                    {s.studentId}
+                  </td>
                   <td className="px-4 py-3 font-medium text-foreground">{`${s.firstName} ${s.lastName}`}</td>
                   <td className="px-4 py-3 text-muted-foreground">{s.program}</td>
                   <td className="px-4 py-3 text-muted-foreground">{s.yearLevel}</td>
@@ -223,9 +294,13 @@ function RegistrarReports() {
             <thead>
               <tr className="border-b bg-muted/50">
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Program</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Year Level</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                  Year Level
+                </th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Semester</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Subject Code</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                  Subject Code
+                </th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Title</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Units</th>
               </tr>

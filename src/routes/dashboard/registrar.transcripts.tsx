@@ -41,8 +41,12 @@ function RegistrarTranscripts() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-heading text-xl font-bold text-foreground">Transcripts & Certificates</h1>
-        <p className="text-sm text-muted-foreground">Generate and download academic documents for students</p>
+        <h1 className="font-heading text-xl font-bold text-foreground">
+          Transcripts & Certificates
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Generate and download academic documents for students
+        </p>
       </div>
 
       <div className="relative max-w-md">
@@ -66,31 +70,30 @@ function RegistrarTranscripts() {
             </tr>
           </thead>
           <tbody>
-            {filteredStudents
-              .map((s, i) => (
-                <motion.tr
-                  key={s.studentId}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: i * 0.04 }}
-                  className="border-b last:border-0 hover:bg-muted/30 transition-colors"
-                >
-                  <td className="px-4 py-3 font-medium text-foreground">
-                    {s.firstName} {s.lastName}
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground">{s.studentId}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{s.program || "—"}</td>
-                  <td className="px-4 py-3">
-                    <button
-                      onClick={() => handleDownload(s)}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:opacity-90"
-                    >
-                      <Download className="h-3.5 w-3.5" />
-                      Download
-                    </button>
-                  </td>
-                </motion.tr>
-              ))}
+            {filteredStudents.map((s, i) => (
+              <motion.tr
+                key={s.studentId}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: i * 0.04 }}
+                className="border-b last:border-0 hover:bg-muted/30 transition-colors"
+              >
+                <td className="px-4 py-3 font-medium text-foreground">
+                  {s.firstName} {s.lastName}
+                </td>
+                <td className="px-4 py-3 text-muted-foreground">{s.studentId}</td>
+                <td className="px-4 py-3 text-muted-foreground">{s.program || "—"}</td>
+                <td className="px-4 py-3">
+                  <button
+                    onClick={() => handleDownload(s)}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:opacity-90"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Download
+                  </button>
+                </td>
+              </motion.tr>
+            ))}
             {filteredStudents.length === 0 && (
               <tr>
                 <td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">

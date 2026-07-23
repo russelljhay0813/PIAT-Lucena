@@ -3,10 +3,13 @@ import { useState, useMemo, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { UserCheck, CheckCircle2, XCircle, Clock, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
 import { fetchSubjects, type Subject } from "@/lib/api";
 import { fetchStudents, type StudentRegistration } from "@/lib/api";
 import { fetchAttendanceRecords } from "@/lib/api";
+import { fetchEnrollments, type StudentEnrollment } from "@/lib/api";
+import { saveAttendanceRecord } from "@/lib/attendance-store";
 
 export const Route = createFileRoute("/dashboard/faculty/attendance")({
   component: FacultyAttendance,
@@ -50,8 +53,12 @@ function FacultyAttendance() {
 
     try {
       setLoading(true);
+      const allEnrollments = await fetchEnrollments();
+      const enrolledForSubject = allEnrollments
+        .filter((e) => e.subjectId === selectedSubject && e.status === "enrolled")
+        .map((e) => e.studentId);
       const allStudents = await fetchStudents();
-      const subjectStudents = allStudents.filter((s) => s.id || s.studentId);
+      const subjectStudents = allStudents.filter((s) => enrolledForSubject.includes(s.studentId));
       setStudents(subjectStudents.map((s) => ({ ...s, status: "present" as AttendanceStatus })));
     } catch {
       setStudents([]);
@@ -68,11 +75,14 @@ function FacultyAttendance() {
 
     try {
       const attendanceRecords = await fetchAttendanceRecords(selectedSubject, selectedDate);
-      
-      const map = attendanceRecords.reduce((acc, record) => {
-        acc[record.studentId] = record.status as AttendanceStatus;
-        return acc;
-      }, {} as Record<string, AttendanceStatus>);
+
+      const map = attendanceRecords.reduce(
+        (acc, record) => {
+          acc[record.studentId] = record.status as AttendanceStatus;
+          return acc;
+        },
+        {} as Record<string, AttendanceStatus>,
+      );
       setAttendanceMap(map);
     } catch {
       setAttendanceMap({});
@@ -87,11 +97,28 @@ function FacultyAttendance() {
     loadAttendance();
   }, [loadAttendance]);
 
+  useEffect(() => {
+    const onChange = () => {
+      void loadAttendance();
+    };
+    window.addEventListener("bwest:attendance-changed", onChange);
+    return () => {
+      window.removeEventListener("bwest:attendance-changed", onChange);
+    };
+  }, [loadAttendance]);
+
   const markStudent = useCallback(
-    async (_studentId: string, _status: "present" | "absent" | "late" | "excused") => {
-      if (!selectedSubject) return;
+    async (studentId: string, status: "present" | "absent" | "late" | "excused") => {
+      if (!selectedSubject || !selectedDate) return;
+      try {
+        await saveAttendanceRecord(studentId, selectedSubject, selectedDate, status);
+        setAttendanceMap((prev) => ({ ...prev, [studentId]: status }));
+        toast.success(`Attendance marked as ${status}`, { description: studentId });
+      } catch {
+        toast.error("Failed to mark attendance");
+      }
     },
-    [selectedSubject],
+    [selectedSubject, selectedDate],
   );
 
   const studentList = useMemo(
@@ -118,13 +145,21 @@ function FacultyAttendance() {
       <div>
         <h1 className="font-heading text-xl font-bold text-foreground">Attendance</h1>
         <p className="text-sm text-muted-foreground">
-          Record attendance for your assigned subjects - {new Date(selectedDate).toLocaleDateString("en-PH", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+          Record attendance for your assigned subjects -{" "}
+          {new Date(selectedDate).toLocaleDateString("en-PH", {
+            weekday: "long",
+            month: "long",
+            day: "numeric",
+            year: "numeric",
+          })}
         </p>
       </div>
 
       <div className="flex flex-wrap gap-2 items-center">
         <div className="flex items-center gap-2">
-          <label htmlFor="attendance-date" className="text-xs text-muted-foreground">Select Date</label>
+          <label htmlFor="attendance-date" className="text-xs text-muted-foreground">
+            Select Date
+          </label>
           <input
             id="attendance-date"
             type="date"
@@ -133,14 +168,13 @@ function FacultyAttendance() {
             className="rounded-lg border bg-background px-3 py-1.5 text-xs"
           />
         </div>
-        <div className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs text-amber-700">
-          Attendance recording is handled in the mobile app for faculty users.
-        </div>
       </div>
 
       <div className="flex flex-wrap gap-2">
         {facultySubjects.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No subjects assigned yet. Subjects are assigned by the Registrar.</p>
+          <p className="text-sm text-muted-foreground">
+            No subjects assigned yet. Subjects are assigned by the Registrar.
+          </p>
         ) : (
           facultySubjects.map((s) => (
             <Button
@@ -156,7 +190,11 @@ function FacultyAttendance() {
       </div>
 
       {selected && (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="space-y-4"
+        >
           <div className="rounded-xl border bg-card p-5 shadow-sm">
             <div className="mb-4 flex items-center gap-2">
               <UserCheck className="h-4 w-4 text-accent" />
@@ -185,7 +223,9 @@ function FacultyAttendance() {
               {loading ? (
                 <p className="text-sm text-muted-foreground">Loading attendance snapshot...</p>
               ) : studentList.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No attendance records are available for this subject on the selected date.</p>
+                <p className="text-sm text-muted-foreground">
+                  No attendance records are available for this subject on the selected date.
+                </p>
               ) : (
                 studentList.map((student) => (
                   <div
@@ -194,14 +234,39 @@ function FacultyAttendance() {
                   >
                     <div className="flex items-center gap-3">
                       <div className="flex h-8 w-8 items-center justify-center rounded-full bg-accent/20 text-xs font-bold text-accent">
-                        {student.firstName.split(" ").map((n) => n[0]).join("")}
+                        {student.firstName
+                          .split(" ")
+                          .map((n) => n[0])
+                          .join("")}
                       </div>
                       <span className="text-sm font-medium text-foreground">
                         {student.firstName} {student.lastName}
                       </span>
                     </div>
-                    <div className="text-sm text-muted-foreground">
-                      {student.status === "present" ? "Present" : student.status === "late" ? "Late" : student.status === "absent" ? "Absent" : student.status === "excused" ? "Excused" : "Pending"}
+                    <div className="flex items-center gap-1">
+                      {(["present", "late", "absent", "excused"] as const).map((s) => {
+                        const isActive = student.status === s;
+                        const icon =
+                          s === "present"
+                            ? CheckCircle2
+                            : s === "late"
+                              ? Clock
+                              : s === "absent"
+                                ? XCircle
+                                : AlertCircle;
+                        return (
+                          <Button
+                            key={s}
+                            size="icon"
+                            variant={isActive ? "default" : "outline"}
+                            onClick={() => markStudent(student.studentId, s)}
+                            className={`h-7 w-7 ${isActive ? "" : "opacity-60 hover:opacity-100"}`}
+                            aria-label={s}
+                          >
+                            {icon({ className: "h-3.5 w-3.5" })}
+                          </Button>
+                        );
+                      })}
                     </div>
                   </div>
                 ))

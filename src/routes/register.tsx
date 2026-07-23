@@ -1,6 +1,15 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
-import { GraduationCap, CheckCircle2, ArrowLeft, User, Phone, BookOpen, ChevronRight, ChevronLeft } from "lucide-react";
+import {
+  GraduationCap,
+  CheckCircle2,
+  ArrowLeft,
+  User,
+  Phone,
+  BookOpen,
+  ChevronRight,
+  ChevronLeft,
+} from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -14,7 +23,11 @@ export const Route = createFileRoute("/register")({
   head: () => ({
     meta: [
       { title: "Student Registration — PIAT" },
-      { name: "description", content: "Apply for admission to Philtech Institute Of Arts And Technology. Submit your registration for automatic approval and enrollment." },
+      {
+        name: "description",
+        content:
+          "Apply for admission to Philtech Institute Of Arts And Technology. Submit your registration for automatic approval and enrollment.",
+      },
     ],
   }),
   component: RegisterPage,
@@ -37,7 +50,10 @@ const step1Schema = z.object({
 
 const step2Schema = z.object({
   email: z.string().trim().email("Invalid email"),
-  mobileNumber: z.string().trim().regex(/^\+?[0-9\s-]{10,15}$/, "Valid mobile number is required"),
+  mobileNumber: z
+    .string()
+    .trim()
+    .regex(/^\+?[0-9\s-]{10,15}$/, "Valid mobile number is required"),
   homeAddress: z.string().trim().min(1, "Home address is required"),
   province: z.string().trim().min(1, "Province is required"),
   city: z.string().trim().min(1, "Municipality/City is required"),
@@ -45,7 +61,10 @@ const step2Schema = z.object({
   zipCode: z.string().trim().min(1, "ZIP code is required"),
   parentGuardianName: z.string().trim().min(1, "Parent/Guardian name is required"),
   relationship: z.string().trim().min(1, "Relationship is required"),
-  parentGuardianContact: z.string().trim().regex(/^\+?[0-9\s-]{10,15}$/, "Valid contact number is required"),
+  parentGuardianContact: z
+    .string()
+    .trim()
+    .regex(/^\+?[0-9\s-]{10,15}$/, "Valid contact number is required"),
 });
 
 const step3Schema = z.object({
@@ -68,7 +87,11 @@ function RegisterPage() {
   const [submitted, setSubmitted] = useState(false);
   const [submissionMessage, setSubmissionMessage] = useState<string>("");
   const [programs, setPrograms] = useState<string[]>([]);
-  const [academicStructure, setAcademicStructure] = useState({ academicYears: [] as string[], yearLevels: [] as string[], semesters: [] as string[] });
+  const [academicStructure, setAcademicStructure] = useState({
+    academicYears: [] as string[],
+    yearLevels: [] as string[],
+    semesters: [] as string[],
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [studentRecord, setStudentRecord] = useState<StudentRegistration | null>(null);
   const currentYear = new Date().getFullYear();
@@ -106,12 +129,16 @@ function RegisterPage() {
   useEffect(() => {
     if (user?.studentId) {
       fetch(`/api/students/${encodeURIComponent(user.studentId)}`)
-        .then((response) => response.ok ? response.json() : null)
+        .then((response) => (response.ok ? response.json() : null))
         .then((record) => {
           if (record) {
             setStudentRecord(record);
             const normalizedStatus = String(record.status || "").toLowerCase();
-            setSubmitted(normalizedStatus === "submitted" || normalizedStatus === "under_review" || normalizedStatus === "approved");
+            setSubmitted(
+              normalizedStatus === "submitted" ||
+                normalizedStatus === "under_review" ||
+                normalizedStatus === "approved",
+            );
             if (normalizedStatus === "approved") {
               navigate({ to: "/dashboard/student" });
               return;
@@ -139,7 +166,8 @@ function RegisterPage() {
               program: record.program || user?.program || "",
               yearLevel: record.yearLevel || user?.yearLevel || YEAR_LEVELS[0],
               semester: record.semester || user?.semester || SEMESTERS[0],
-              academicYear: record.academicYear || user?.academicYear || `${currentYear}-${currentYear + 1}`,
+              academicYear:
+                record.academicYear || user?.academicYear || `${currentYear}-${currentYear + 1}`,
             });
           }
         })
@@ -171,10 +199,39 @@ function RegisterPage() {
     let isValid = false;
     switch (currentStep) {
       case 1:
-        isValid = await form.trigger(["firstName", "lastName", "gender", "dob", "civilStatus", "nationality"]);
+        isValid = await form.trigger([
+          "firstName",
+          "lastName",
+          "gender",
+          "dob",
+          "civilStatus",
+          "nationality",
+        ]);
         break;
       case 2:
-        isValid = await form.trigger(["email", "mobileNumber", "homeAddress", "province", "city", "barangay", "zipCode", "parentGuardianName", "relationship", "parentGuardianContact"]);
+        isValid = await form.trigger([
+          "email",
+          "mobileNumber",
+          "homeAddress",
+          "province",
+          "city",
+          "barangay",
+          "zipCode",
+          "parentGuardianName",
+          "relationship",
+          "parentGuardianContact",
+        ]);
+        if (isValid) {
+          const email = form.getValues("email");
+          if (
+            studentRecord?.email &&
+            studentRecord.email !== email &&
+            (await emailExists(email || ""))
+          ) {
+            form.setError("email", { message: "This email is already registered" });
+            isValid = false;
+          }
+        }
         break;
       case 3:
         isValid = await form.trigger(["program", "yearLevel", "semester", "academicYear"]);
@@ -200,18 +257,24 @@ function RegisterPage() {
   const handleSubmit = async () => {
     const data = form.getValues();
     if (!user?.studentId) {
-      form.setError("email", { message: "Your student account could not be identified. Please sign in again." });
+      form.setError("email", {
+        message: "Your student account could not be identified. Please sign in again.",
+      });
       return;
     }
 
-    if (studentRecord?.email && studentRecord.email !== data.email && (await emailExists(data.email || ""))) {
+    if (
+      studentRecord?.email &&
+      studentRecord.email !== data.email &&
+      (await emailExists(data.email || ""))
+    ) {
       form.setError("email", { message: "This email is already registered" });
       return;
     }
 
     setIsLoading(true);
     try {
-      await submitRegistration({
+      const created = await submitRegistration({
         studentId: user.studentId,
         firstName: data.firstName,
         middleName: data.middleName || undefined,
@@ -240,9 +303,18 @@ function RegisterPage() {
         parentContact: data.parentGuardianContact || undefined,
         parentRelationship: data.relationship || undefined,
         placeOfBirth: data.placeOfBirth || undefined,
-        status: "submitted",
+        status: "approved",
       });
-      setSubmissionMessage("Registration completed successfully. Your registration has been approved and you are now officially enrolled.");
+      const actualStatus = created?.status || "approved";
+      if (actualStatus === "approved") {
+        setSubmissionMessage(
+          "Registration completed successfully. Your registration has been approved and you are now officially enrolled.",
+        );
+      } else {
+        setSubmissionMessage(
+          "Registration submitted successfully. Your application is under review by the Registrar's Office.",
+        );
+      }
       setSubmitted(true);
     } finally {
       setIsLoading(false);
@@ -252,16 +324,25 @@ function RegisterPage() {
   if (submitted || ["submitted", "under_review"].includes(String(studentRecord?.status || ""))) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background px-4">
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-          className="w-full max-w-md rounded-2xl border bg-card p-8 text-center shadow-sm">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="w-full max-w-md rounded-2xl border bg-card p-8 text-center shadow-sm"
+        >
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-success/10 text-success">
             <CheckCircle2 className="h-7 w-7" />
           </div>
-          <h1 className="font-heading text-xl font-bold text-foreground">Registration Submitted Successfully</h1>
+          <h1 className="font-heading text-xl font-bold text-foreground">
+            Registration Submitted Successfully
+          </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Registration completed successfully. Your registration has been approved and you are now officially enrolled.
+            {submissionMessage ||
+              "Registration completed successfully. Your registration has been approved and you are now officially enrolled."}
           </p>
-          <Link to="/" className="mt-6 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90">
+          <Link
+            to="/"
+            className="mt-6 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+          >
             <ArrowLeft className="h-4 w-4" /> Back to Login
           </Link>
         </motion.div>
@@ -278,13 +359,20 @@ function RegisterPage() {
 
   return (
     <div className="flex min-h-screen items-start justify-center bg-background px-4 py-10">
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-4xl">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="w-full max-w-4xl"
+      >
         <div className="mb-6 text-center">
           <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg">
             <GraduationCap className="h-7 w-7" />
           </div>
           <h1 className="font-heading text-2xl font-bold text-foreground">Student Registration</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Complete all steps to submit your registration. Your account will be approved automatically and enrollment will be created immediately.</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Complete all steps to submit your registration. Your account will be approved
+            automatically and enrollment will be created immediately.
+          </p>
         </div>
 
         {/* Progress Steps */}
@@ -292,7 +380,9 @@ function RegisterPage() {
           <div className="flex items-center gap-2">
             {stepTitles.map((s, i) => (
               <div key={s.step} className="flex items-center">
-                <div className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold ${step >= s.step ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                <div
+                  className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold ${step >= s.step ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}
+                >
                   {s.step}
                 </div>
                 {i < stepTitles.length - 1 && (
@@ -336,12 +426,20 @@ function RegisterPage() {
                     <input {...form.register("lastName")} className="input" />
                   </Field>
                   <Field label="Suffix">
-                    <input {...form.register("suffix")} className="input" placeholder="Jr, III, etc." />
+                    <input
+                      {...form.register("suffix")}
+                      className="input"
+                      placeholder="Jr, III, etc."
+                    />
                   </Field>
                   <Field label="Gender">
                     <select {...form.register("gender")} className="input">
                       <option value="">Select...</option>
-                      {GENDERS.map((g) => <option key={g} value={g}>{g}</option>)}
+                      {GENDERS.map((g) => (
+                        <option key={g} value={g}>
+                          {g}
+                        </option>
+                      ))}
                     </select>
                   </Field>
                   <Field label="Date of Birth">
@@ -349,7 +447,11 @@ function RegisterPage() {
                   </Field>
                   <Field label="Civil Status">
                     <select {...form.register("civilStatus")} className="input">
-                      {CIVIL_STATUS.map((c) => <option key={c} value={c}>{c}</option>)}
+                      {CIVIL_STATUS.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
                     </select>
                   </Field>
                   <Field label="Nationality *" error={form.formState.errors.nationality?.message}>
@@ -366,10 +468,17 @@ function RegisterPage() {
                   <Field label="Email Address *" error={form.formState.errors.email?.message}>
                     <input type="email" {...form.register("email")} className="input" />
                   </Field>
-                  <Field label="Mobile Number *" error={form.formState.errors.mobileNumber?.message}>
+                  <Field
+                    label="Mobile Number *"
+                    error={form.formState.errors.mobileNumber?.message}
+                  >
                     <input {...form.register("mobileNumber")} className="input" />
                   </Field>
-                  <Field label="Home Address *" error={form.formState.errors.homeAddress?.message} className="sm:col-span-2 lg:col-span-3">
+                  <Field
+                    label="Home Address *"
+                    error={form.formState.errors.homeAddress?.message}
+                    className="sm:col-span-2 lg:col-span-3"
+                  >
                     <input {...form.register("homeAddress")} className="input" />
                   </Field>
                   <Field label="Province">
@@ -384,7 +493,10 @@ function RegisterPage() {
                   <Field label="ZIP Code">
                     <input {...form.register("zipCode")} className="input" />
                   </Field>
-                  <Field label="Parent/Guardian Name *" error={form.formState.errors.parentGuardianName?.message}>
+                  <Field
+                    label="Parent/Guardian Name *"
+                    error={form.formState.errors.parentGuardianName?.message}
+                  >
                     <input {...form.register("parentGuardianName")} className="input" />
                   </Field>
                   <Field label="Relationship *" error={form.formState.errors.relationship?.message}>
@@ -403,19 +515,31 @@ function RegisterPage() {
               {step === 3 && (
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   <Field label="Program *" error={form.formState.errors.program?.message}>
-                    <select {...form.register("program")} className="input" disabled>
+                    <select {...form.register("program")} className="input">
                       <option value="">Select program...</option>
-                      {programs.map((p) => <option key={p} value={p}>{p}</option>)}
+                      {programs.map((p) => (
+                        <option key={p} value={p}>
+                          {p}
+                        </option>
+                      ))}
                     </select>
                   </Field>
                   <Field label="Year Level *">
-                    <select {...form.register("yearLevel")} className="input" disabled>
-                      {academicStructure.yearLevels.map((y) => <option key={y} value={y}>{y}</option>)}
+                    <select {...form.register("yearLevel")} className="input">
+                      {academicStructure.yearLevels.map((y) => (
+                        <option key={y} value={y}>
+                          {y}
+                        </option>
+                      ))}
                     </select>
                   </Field>
                   <Field label="Semester *">
-                    <select {...form.register("semester")} className="input" disabled>
-                      {academicStructure.semesters.map((s) => <option key={s} value={s}>{s}</option>)}
+                    <select {...form.register("semester")} className="input">
+                      {academicStructure.semesters.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
                     </select>
                   </Field>
                   <Field label="Academic Year *">
@@ -428,7 +552,10 @@ function RegisterPage() {
                 <div className="space-y-6">
                   <div className="grid gap-4 sm:grid-cols-2">
                     <PreviewSection title="Personal Information">
-                      <PreviewItem label="Full Name" value={`${previewData.firstName} ${previewData.middleName || ""} ${previewData.lastName} ${previewData.suffix || ""}`} />
+                      <PreviewItem
+                        label="Full Name"
+                        value={`${previewData.firstName} ${previewData.middleName || ""} ${previewData.lastName} ${previewData.suffix || ""}`}
+                      />
                       <PreviewItem label="Gender" value={previewData.gender} />
                       <PreviewItem label="Date of Birth" value={previewData.dob} />
                       <PreviewItem label="Civil Status" value={previewData.civilStatus} />
@@ -441,7 +568,10 @@ function RegisterPage() {
                       <PreviewItem label="Address" value={previewData.homeAddress} />
                       <PreviewItem label="Parent/Guardian" value={previewData.parentGuardianName} />
                       <PreviewItem label="Relationship" value={previewData.relationship} />
-                      <PreviewItem label="Parent Contact" value={previewData.parentGuardianContact} />
+                      <PreviewItem
+                        label="Parent Contact"
+                        value={previewData.parentGuardianContact}
+                      />
                     </PreviewSection>
                   </div>
                   <PreviewSection title="Academic Information">
@@ -452,7 +582,11 @@ function RegisterPage() {
                   </PreviewSection>
                   <div className="rounded-lg bg-warning/10 p-4 text-sm text-warning">
                     <p className="font-medium">Important:</p>
-                    <p>By submitting this application, you confirm that all information provided is accurate. Your application will be reviewed by the Registrar's Office and you will receive credentials once approved.</p>
+                    <p>
+                      By submitting this application, you confirm that all information provided is
+                      accurate. Your application will be reviewed by the Registrar's Office and you
+                      will receive credentials once approved.
+                    </p>
                   </div>
                 </div>
               )}
@@ -460,7 +594,10 @@ function RegisterPage() {
           </AnimatePresence>
 
           <div className="flex items-center justify-between pt-2">
-            <Link to="/" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+            <Link
+              to="/"
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+            >
               <ArrowLeft className="h-3 w-3" /> Back to Login
             </Link>
             <div className="flex gap-2">
@@ -499,7 +636,17 @@ function RegisterPage() {
   );
 }
 
-function Field({ label, error, children, className }: { label: string; error?: string; children: React.ReactNode; className?: string }) {
+function Field({
+  label,
+  error,
+  children,
+  className,
+}: {
+  label: string;
+  error?: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
     <div className={`space-y-1 ${className || ""}`}>
       <label className="text-xs font-medium text-muted-foreground">{label}</label>
@@ -512,7 +659,9 @@ function Field({ label, error, children, className }: { label: string; error?: s
 function PreviewSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="rounded-lg border bg-muted/30 p-4">
-      <h3 className="font-heading text-xs font-semibold uppercase text-muted-foreground mb-3">{title}</h3>
+      <h3 className="font-heading text-xs font-semibold uppercase text-muted-foreground mb-3">
+        {title}
+      </h3>
       <div className="space-y-2">{children}</div>
     </div>
   );

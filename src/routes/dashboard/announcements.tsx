@@ -48,7 +48,11 @@ function timeAgo(ts: number): string {
   if (h < 24) return `${h}h ago`;
   const d = Math.floor(h / 24);
   if (d < 7) return `${d}d ago`;
-  return new Date(ts).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
+  return new Date(ts).toLocaleDateString("en-PH", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 interface ApiAnnouncement {
@@ -109,9 +113,7 @@ function AnnouncementsPage() {
       .filter((a) => visibleTo({ ...a, authorRole: a.authorRole || "admin" } as any, role))
       .filter((a) => (filter === "all" ? true : a.category === filter))
       .filter((a) =>
-        q
-          ? a.title.toLowerCase().includes(q) || a.body.toLowerCase().includes(q)
-          : true
+        q ? a.title.toLowerCase().includes(q) || a.body.toLowerCase().includes(q) : true,
       )
       .sort((a, b) => {
         if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
@@ -171,9 +173,7 @@ function AnnouncementsPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="font-heading text-xl font-bold text-foreground">
-            Announcements
-          </h1>
+          <h1 className="font-heading text-xl font-bold text-foreground">Announcements</h1>
           <p className="text-sm text-muted-foreground">
             School-wide bulletin board for memos, events, and notices
           </p>
@@ -202,7 +202,10 @@ function AnnouncementsPage() {
 
               <div className="space-y-3">
                 <div>
-                  <label className="mb-1 block text-[11px] font-medium text-muted-foreground" htmlFor="announcement-title">
+                  <label
+                    className="mb-1 block text-[11px] font-medium text-muted-foreground"
+                    htmlFor="announcement-title"
+                  >
                     Title
                   </label>
                   <input
@@ -219,7 +222,10 @@ function AnnouncementsPage() {
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-[11px] font-medium text-muted-foreground" htmlFor="announcement-body">
+                  <label
+                    className="mb-1 block text-[11px] font-medium text-muted-foreground"
+                    htmlFor="announcement-body"
+                  >
                     Message
                   </label>
                   <textarea
@@ -384,7 +390,9 @@ function AnnouncementCard({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-start gap-3">
-          <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${meta.className}`}>
+          <div
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${meta.className}`}
+          >
             <Icon className="h-4 w-4" />
           </div>
           <div className="min-w-0 flex-1">
@@ -394,7 +402,9 @@ function AnnouncementCard({
                   <Pin className="h-2.5 w-2.5" /> Pinned
                 </span>
               )}
-              <span className={`rounded-full px-2 py-0.5 text-[9px] font-medium uppercase tracking-wider ${meta.className}`}>
+              <span
+                className={`rounded-full px-2 py-0.5 text-[9px] font-medium uppercase tracking-wider ${meta.className}`}
+              >
                 {meta.label}
               </span>
               {a.audience !== "all" && (
@@ -406,9 +416,7 @@ function AnnouncementCard({
             <h3 className="mt-1.5 font-heading text-base font-semibold text-card-foreground">
               {a.title}
             </h3>
-            <p className="mt-1.5 whitespace-pre-wrap text-sm text-foreground/80">
-              {a.body}
-            </p>
+            <p className="mt-1.5 whitespace-pre-wrap text-sm text-foreground/80">{a.body}</p>
             <p className="mt-3 text-[11px] text-muted-foreground">
               Posted by <span className="font-medium text-foreground">{a.authorName}</span>
               <span className="capitalize"> · {a.authorRole}</span>

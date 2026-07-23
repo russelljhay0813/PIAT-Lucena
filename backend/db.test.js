@@ -68,7 +68,14 @@ test("initDb creates the full academic management schema", async () => {
       );
     });
 
-    assert.deepEqual(tables, ["academic_records", "academic_years", "faculty", "sections", "semesters", "subject_offerings"]);
+    assert.deepEqual(tables, [
+      "academic_records",
+      "academic_years",
+      "faculty",
+      "sections",
+      "semesters",
+      "subject_offerings",
+    ]);
 
     const academicYearCount = await new Promise((resolve, reject) => {
       db.get("SELECT COUNT(*) AS count FROM academic_years", (err, row) => {
@@ -97,22 +104,31 @@ test("initDb seeds subject offerings for every supported academic year", async (
   try {
     await initDb(db);
     const academicYears = await new Promise((resolve, reject) => {
-      db.all("SELECT DISTINCT academicYear FROM subjects WHERE academicYear IS NOT NULL ORDER BY academicYear", (err, rows) => {
-        if (err) reject(err);
-        else resolve(rows.map((row) => row.academicYear));
-      });
+      db.all(
+        "SELECT DISTINCT academicYear FROM subjects WHERE academicYear IS NOT NULL ORDER BY academicYear",
+        (err, rows) => {
+          if (err) reject(err);
+          else resolve(rows.map((row) => row.academicYear));
+        },
+      );
     });
 
     assert.deepEqual(academicYears, ["2025-2026", "2026-2027", "2027-2028", "2028-2029"]);
 
     const programCount = await new Promise((resolve, reject) => {
-      db.get("SELECT COUNT(DISTINCT program) AS count FROM subjects WHERE academicYear = '2025-2026'", (err, row) => {
-        if (err) reject(err);
-        else resolve(row.count);
-      });
+      db.get(
+        "SELECT COUNT(DISTINCT program) AS count FROM subjects WHERE academicYear = '2025-2026'",
+        (err, row) => {
+          if (err) reject(err);
+          else resolve(row.count);
+        },
+      );
     });
 
-    assert.ok(programCount >= 5, "expected at least one offering per program for the first academic year");
+    assert.ok(
+      programCount >= 5,
+      "expected at least one offering per program for the first academic year",
+    );
   } finally {
     await new Promise((resolve, reject) => db.close((err) => (err ? reject(err) : resolve())));
   }

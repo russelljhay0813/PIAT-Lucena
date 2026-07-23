@@ -9,6 +9,7 @@
 ## Executive Summary
 
 A comprehensive static code review was performed across the entire PIAT Academic Management System stack:
+
 - **Backend:** Express.js REST API + SQLite database (`backend/index.js`, `backend/db.js`)
 - **Web Frontend:** React 19 + TanStack Router + Tailwind CSS v4 (`src/`)
 - **Mobile Client:** Expo/React Native (`mobile_build/` — screens directory empty)
@@ -16,17 +17,18 @@ A comprehensive static code review was performed across the entire PIAT Academic
 **Total Issues Identified: 49**
 
 | Severity | Count |
-|----------|-------|
-| Critical | 12 |
-| High | 19 |
-| Medium | 13 |
-| Low | 5 |
+| -------- | ----- |
+| Critical | 12    |
+| High     | 19    |
+| Medium   | 13    |
+| Low      | 5     |
 
 ---
 
 ## 1. Authentication & Authorization
 
 ### ISS-001: Hardcoded JWT Secret
+
 - **Module:** Authentication
 - **Severity:** Critical
 - **File:** `backend/index.js:16`
@@ -35,6 +37,7 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Possible Cause:** Development convenience left in production code.
 
 ### ISS-002: Dev-Mode Default Admin Role Fallback
+
 - **Module:** Authentication
 - **Severity:** Critical
 - **File:** `backend/auth-utils.js:40-44`
@@ -42,6 +45,7 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** Complete administrative access without credentials in any non-production deployment.
 
 ### ISS-003: Unauthenticated Public Access to Sensitive Endpoints
+
 - **Module:** Authentication / API
 - **Severity:** High
 - **File:** `backend/index.js`
@@ -71,28 +75,29 @@ A comprehensive static code review was performed across the entire PIAT Academic
   - `GET /api/dashboard/registrar` (line 1308)
 - **Impact:** Sensitive institutional data is exposed without authentication. Critical operations like re-enrollment, record finalization, and program/curriculum modification are publicly accessible.
 
-### ISS-004: Re-enrollment Endpoint Does Nothing
+<!-- ### ISS-004: Re-enrollment Endpoint Does Nothing
 - **Module:** Re-enrollment / API
 - **Severity:** Critical
 - **File:** `backend/index.js:1434-1441`
 - **Description:** `POST /api/students/:studentId/reenroll` only creates a notification saying "Re-enrollment Ignored" and returns the existing student with `enrollmentsCreated: 0`. It performs no actual re-enrollment logic.
-- **Impact:** The entire re-enrollment workflow is non-functional via API.
+- **Impact:** The entire re-enrollment workflow is non-functional via API. -->
 
-### ISS-005: Finalize Records Endpoint Finalizes ALL Grades
+<!-- ### ISS-005: Finalize Records Endpoint Finalizes ALL Grades
 - **Module:** Re-enrollment / API
 - **Severity:** Critical
 - **File:** `backend/index.js:1443-1451`
 - **Description:** `POST /api/students/:studentId/finalize-records` updates every grade for the student to `status = 'finalized'`, regardless of which semester, subject, or period. There is no filtering.
-- **Impact:** Finalizing records for one semester inadvertently finalizes all grades, corrupting academic record integrity.
+- **Impact:** Finalizing records for one semester inadvertently finalizes all grades, corrupting academic record integrity. -->
 
-### ISS-006: Enrollment Creation Endpoint Is a No-Op
+<!-- ### ISS-006: Enrollment Creation Endpoint Is a No-Op
 - **Module:** Enrollment / API
 - **Severity:** Critical
 - **File:** `backend/index.js:1254-1259`
 - **Description:** `POST /api/enrollments` accepts `studentId` and `subjectIds`, logs "Enrollment request ignored (student-only mode)", and returns `[]`. No enrollment records are created.
-- **Impact:** The entire enrollment workflow is broken at the API level.
+- **Impact:** The entire enrollment workflow is broken at the API level. -->
 
 ### ISS-007: Student Login Returns Full Student Record
+
 - **Module:** Authentication / API
 - **Severity:** High
 - **File:** `backend/index.js:683`
@@ -100,6 +105,7 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** Over-exposure of sensitive personal data in the login response.
 
 ### ISS-008: Staff Login Returns Plaintext Temporary Password
+
 - **Module:** Authentication / API
 - **Severity:** High
 - **File:** `backend/index.js:1083`
@@ -107,6 +113,7 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** Temporary passwords are exposed in API responses after every staff login.
 
 ### ISS-009: Rate Limiter Uses Client IP Without Proxy Awareness
+
 - **Module:** Authentication / API
 - **Severity:** High
 - **File:** `backend/index.js:66-84`
@@ -114,6 +121,7 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** Rate limiting is unreliable in production deployments behind proxies.
 
 ### ISS-010: No CSRF Protection
+
 - **Module:** Authentication / API
 - **Severity:** Medium
 - **File:** `backend/index.js:35`
@@ -121,6 +129,7 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** Authenticated users can be tricked into performing unintended actions via cross-site request forgery.
 
 ### ISS-011: Password Reset Allows Any Password Without Old Password Verification
+
 - **Module:** Authentication / API
 - **Severity:** High
 - **File:** `backend/index.js:1050-1060`
@@ -128,6 +137,7 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** Account takeover risk if an admin session is compromised.
 
 ### ISS-012: Session Never Invalidated on Logout
+
 - **Module:** Authentication / Frontend
 - **Severity:** Medium
 - **File:** `src/lib/auth-context.tsx:69-74`
@@ -138,35 +148,36 @@ A comprehensive static code review was performed across the entire PIAT Academic
 
 ## 2. Administrator Module
 
-### ISS-013: Admin Dashboard Stats Inaccurate
+<!-- ### ISS-013: Admin Dashboard Stats Inaccurate
 - **Module:** Administrator / Dashboard
 - **Severity:** High
 - **File:** `src/routes/dashboard/admin.index.tsx:25-28`
 - **Description:** The admin dashboard computes `totalStudents` and `totalFaculty` from the `users` table, while `pendingApplications` and `approvedStudents` come from the `students` table. These two sources can diverge.
-- **Impact:** Dashboard statistics may be incorrect or misleading.
+- **Impact:** Dashboard statistics may be incorrect or misleading. -->
 
-### ISS-014: Subject Offerings Card Uses Wrong Icon
+<!-- ### ISS-014: Subject Offerings Card Uses Wrong Icon
 - **Module:** Administrator / Dashboard
 - **Severity:** Low
 - **File:** `src/routes/dashboard/admin.index.tsx:41`
 - **Description:** The "Subject Offerings" card uses the `Users` icon and subtitle "Active courses" instead of a more appropriate icon like `BookOpen`.
-- **Impact:** Minor UI inconsistency.
+- **Impact:** Minor UI inconsistency. -->
 
-### ISS-015: Create Staff Form Missing Semester and Academic Year Fields
+<!-- ### ISS-015: Create Staff Form Missing Semester and Academic Year Fields
 - **Module:** Administrator / User Management
 - **Severity:** Medium
 - **File:** `src/routes/dashboard/admin.users.tsx:34-40`
 - **Description:** The "Create Staff" modal form only captures `role`, `firstName`, `middleName`, `lastName`, and `email`. It does not include `semester` or `academicYear` fields.
-- **Impact:** Staff accounts are created with NULL semester/academicYear.
+- **Impact:** Staff accounts are created with NULL semester/academicYear. -->
 
 ### ISS-016: Create Student Form Does Not Capture Required Backend Fields
+
 - **Module:** Administrator / User Management
 - **Severity:** High
 - **File:** `src/routes/dashboard/admin.users.tsx:23-33`
 - **Description:** The "Create Student" form omits critical fields required by `validateRegistrationPayload`: `educationLevel`, `yearLevel`, `semester`, `contactNumber`, `address`, `city`, `province`, `zip`, `parentName`, `parentRelationship`, `parentContact`.
 - **Impact:** Students created by admin have incomplete records and will fail auto-approval validation.
 
-### ISS-017: Credentials Modal Z-Index Inconsistency
+<!-- ### ISS-017: Credentials Modal Z-Index Inconsistency
 - **Module:** Administrator / User Management
 - **Severity:** Low
 - **File:** `src/routes/dashboard/admin.users.tsx:450`
@@ -178,9 +189,9 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Severity:** High
 - **File:** `src/routes/dashboard/admin.settings.tsx:13-21, 40-42`
 - **Description:** The settings page stores all configuration in local React state. There is no API call to persist any settings to the database.
-- **Impact:** Settings are completely non-functional; changes are lost on page refresh.
+- **Impact:** Settings are completely non-functional; changes are lost on page refresh. -->
 
-### ISS-019: Settings Toggle "left-5.5" Is Invalid CSS
+<!-- ### ISS-019: Settings Toggle "left-5.5" Is Invalid CSS
 - **Module:** Administrator / Settings
 - **Severity:** Medium
 - **File:** `src/routes/dashboard/admin.settings.tsx:112`
@@ -192,10 +203,8 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Severity:** Medium
 - **File:** `src/routes/dashboard/admin.security.tsx:16`
 - **Description:** The "2FA Enabled" stat counts users where `temporaryPassword` is truthy. The `temporaryPassword` field stores the plaintext initial password, not a 2FA flag.
-- **Impact:** Misleading security metrics displayed to administrators.
-
----
-
+- **Impact:** Misleading security metrics displayed to administrators. -->
+<!--
 ## 3. Registrar Module
 
 ### ISS-021: Enrollment Page Stats Use Unfiltered Data
@@ -259,11 +268,11 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Severity:** Medium
 - **File:** `src/routes/dashboard/registrar.faculty.tsx:71`
 - **Description:** `getFacultySubjects` filters subjects by `facultyId`, but the faculty list displayed includes ALL faculty users regardless of whether they have any assigned subjects.
-- **Impact:** Dashboard statistics may misrepresent actual faculty workload.
+- **Impact:** Dashboard statistics may misrepresent actual faculty workload. -->
 
 ---
 
-## 4. Faculty Module
+<!-- ## 4. Faculty Module
 
 ### ISS-030: Faculty Attendance Page Does Not Allow Recording Attendance
 - **Module:** Faculty / Attendance
@@ -312,11 +321,11 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Severity:** Low
 - **File:** `src/routes/dashboard/faculty.index.tsx:54-65`
 - **Description:** The schedule parser matches day abbreviations against today's day token. This is fragile for non-standard schedule formats.
-- **Impact:** "Today's Schedule" may show incorrect classes.
+- **Impact:** "Today's Schedule" may show incorrect classes. -->
 
 ---
 
-## 5. Student Module
+<!-- ## 5. Student Module
 
 ### ISS-037: Student Registration Submits Without Auto-Approval
 - **Module:** Student / Registration
@@ -358,11 +367,11 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Severity:** Medium
 - **File:** `src/routes/dashboard/student.attendance.tsx:116`
 - **Description:** The attendance table displays `r.subjectId` (a UUID) instead of `r.subjectCode` or `r.subjectTitle`.
-- **Impact:** Attendance records are unreadable.
+- **Impact:** Attendance records are unreadable. -->
 
 ---
 
-## 6. Attendance Tracker Module
+<!-- ## 6. Attendance Tracker Module
 
 ### ISS-043: Attendance Does Not Sync to Dashboards
 - **Module:** Attendance / Integration
@@ -383,11 +392,11 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Severity:** High
 - **File:** `backend/index.js:795-846` and `backend/index.js:1176-1217`
 - **Description:** Two Express routes are registered for `POST /api/attendance`. The second silently overwrites the first.
-- **Impact:** All new attendance records are created with missing data.
+- **Impact:** All new attendance records are created with missing data. -->
 
 ---
 
-## 7. Database & Data Integrity
+<!-- ## 7. Database & Data Integrity
 
 ### ISS-046: `students` Table Status Allows Invalid Values
 - **Module:** Database
@@ -429,13 +438,14 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Severity:** High
 - **File:** `backend/index.js:795-846` and `backend/index.js:1176-1217`
 - **Description:** Two Express routes for `POST /api/attendance` are registered. The second silently overwrites the first.
-- **Impact:** The more complete handler is unreachable.
+- **Impact:** The more complete handler is unreachable. -->
 
 ---
 
-## 8. UI/UX Issues
+<!-- ## 8. UI/UX Issues
 
 ### ISS-052: Faculty Attendance Page Missing Action Buttons
+
 - **Module:** Faculty / UI
 - **Severity:** High
 - **File:** `src/routes/dashboard/faculty.attendance.tsx`
@@ -443,6 +453,7 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** Faculty cannot mark attendance through the web interface.
 
 ### ISS-053: Student Registration Step 3 Fields Are Disabled
+
 - **Module:** Student / Registration
 - **Severity:** High
 - **File:** `src/routes/register.tsx:406-423`
@@ -450,6 +461,7 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** Students cannot correct their program/year/semester if the stored values are wrong.
 
 ### ISS-054: Faculty Dashboard "Current Semester" Shows "—" When User Has No Semester
+
 - **Module:** Faculty / Dashboard
 - **Severity:** Low
 - **File:** `src/routes/dashboard/faculty.index.tsx:98`
@@ -457,6 +469,7 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** Minor display issue.
 
 ### ISS-055: Admin Security Page "2FA Enabled" Stat Is Misleading
+
 - **Module:** Administrator / Security
 - **Severity:** Medium
 - **File:** `src/routes/dashboard/admin.security.tsx:16`
@@ -464,6 +477,7 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** Administrators see false security metrics.
 
 ### ISS-056: Registrar Students Page Shows "Enrolled" Status Based on Registration Status
+
 - **Module:** Registrar / Students
 - **Severity:** Medium
 - **File:** `src/routes/dashboard/registrar.students.tsx:144-146`
@@ -471,6 +485,7 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** Misleading enrollment status display.
 
 ### ISS-057: Faculty Grades Page Does Not Show Midterm/Final Grades After Save
+
 - **Module:** Faculty / Grading
 - **Severity:** High
 - **File:** `src/routes/dashboard/faculty.grades.tsx:223-300`
@@ -478,6 +493,7 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** Faculty lose midterm and final grade data.
 
 ### ISS-058: Student Dashboard Grades Section Does Not Show All Periods
+
 - **Module:** Student / Dashboard
 - **Severity:** Medium
 - **File:** `src/routes/dashboard/student.index.tsx:755-826`
@@ -485,6 +501,7 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** Students cannot see their midterm or final grades.
 
 ### ISS-059: Attendance Records Table Missing Subject Details
+
 - **Module:** Student / Attendance
 - **Severity:** Medium
 - **File:** `src/routes/dashboard/student.attendance.tsx:116`
@@ -492,17 +509,19 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** Students cannot identify which subject each attendance record belongs to.
 
 ### ISS-060: Faculty Subject Details Page Shows "—" for Missing Attendance
+
 - **Module:** Faculty / Class List
 - **Severity:** Low
 - **File:** `src/routes/dashboard/faculty.subject-details.tsx:220`
 - **Description:** The "Attendance Status" column shows "—" when no attendance records exist for a student.
-- **Impact:** Minor display issue in a broken feature.
+- **Impact:** Minor display issue in a broken feature. -->
 
 ---
 
-## 9. Mobile Client
+<!-- ## 9. Mobile Client
 
 ### ISS-061: Mobile Screens Directory Is Empty
+
 - **Module:** Mobile Client
 - **Severity:** High
 - **File:** `mobile_build/src/screens/`
@@ -510,17 +529,19 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** The mobile client is non-functional.
 
 ### ISS-062: Mobile API Client Missing Identity Headers
+
 - **Module:** Mobile Client / API
 - **Severity:** Medium
 - **File:** `mobile_build/src/lib/api.ts:8-19`
 - **Description:** The mobile API client only sends the `Authorization: Bearer <token>` header. It does not send `x-user-role`, `x-user-id`, or `x-user-student-id` headers.
-- **Impact:** Backend identity resolution for mobile requests may fall back to dev-mode admin.
+- **Impact:** Backend identity resolution for mobile requests may fall back to dev-mode admin. -->
 
 ---
 
-## 10. Integration & Workflow Issues
+<!-- ## 10. Integration & Workflow Issues
 
 ### ISS-063: No Synchronization Between Admin User Creation and Student Record Creation
+
 - **Module:** Integration / Administrator ↔ Student
 - **Severity:** High
 - **File:** `backend/index.js:974-1013`
@@ -528,6 +549,7 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** Students created by admin have incomplete records and no enrollments.
 
 ### ISS-064: No Synchronization Between Grade Submission and Student Dashboard
+
 - **Module:** Integration / Faculty ↔ Student
 - **Severity:** High
 - **File:** `backend/index.js:752-754`
@@ -535,6 +557,7 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** Students must manually refresh their dashboard to see new grades.
 
 ### ISS-065: No Synchronization Between Attendance Recording and Student Dashboard
+
 - **Module:** Integration / Faculty ↔ Student
 - **Severity:** High
 - **File:** `backend/index.js:795-846`
@@ -542,6 +565,7 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** Attendance data is stale until manual refresh.
 
 ### ISS-066: No Synchronization Between Enrollment and Faculty Dashboard
+
 - **Module:** Integration / Registrar ↔ Faculty
 - **Severity:** High
 - **File:** `backend/index.js:1254-1259`
@@ -549,17 +573,19 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** Faculty class lists would not update automatically.
 
 ### ISS-067: Attendance Bulk Endpoint Not Used by Any Frontend
+
 - **Module:** Integration / API
 - **Severity:** Medium
 - **File:** `backend/index.js:1115-1174` and `mobile_build/src/lib/api.ts:147-151`
 - **Description:** The `POST /api/attendance/bulk` endpoint exists but the web frontend has no UI for bulk attendance entry. The mobile app's screens directory is empty.
-- **Impact:** The bulk attendance endpoint is effectively unreachable.
+- **Impact:** The bulk attendance endpoint is effectively unreachable. -->
 
 ---
-
+<!-- 
 ## 11. Performance & Infrastructure
 
 ### ISS-068: No Database Indexes on Foreign Keys
+
 - **Module:** Database
 - **Severity:** Medium
 - **File:** `backend/db.js`
@@ -567,6 +593,7 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** Slow query performance as data volume grows.
 
 ### ISS-069: N+1 Query Pattern in Reports and Dashboard Stats
+
 - **Module:** API / Performance
 - **Severity:** Medium
 - **File:** `backend/index.js:1453-1471`
@@ -574,6 +601,7 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** Reports will become slow as data grows.
 
 ### ISS-070: No Request Validation Middleware
+
 - **Module:** API
 - **Severity:** Medium
 - **File:** `backend/index.js`
@@ -581,6 +609,7 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** Missing or inconsistent validation can lead to unexpected errors or data corruption.
 
 ### ISS-071: No Pagination on List Endpoints
+
 - **Module:** API
 - **Severity:** Medium
 - **File:** `backend/index.js`
@@ -588,17 +617,19 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** As data grows, response payloads become large, causing slow page loads.
 
 ### ISS-072: No Caching Layer
+
 - **Module:** API / Performance
 - **Severity:** Low
 - **File:** `backend/index.js`
 - **Description:** There is no HTTP caching or application-level caching for frequently accessed data.
-- **Impact:** Redundant database queries for static reference data.
+- **Impact:** Redundant database queries for static reference data. -->
 
 ---
 
-## 12. Additional Findings
+<!-- ## 12. Additional Findings
 
 ### ISS-073: Registrar Dashboard Stats Endpoint Is Public
+
 - **Module:** Registrar / API
 - **Severity:** High
 - **File:** `backend/index.js:1308`
@@ -606,6 +637,7 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** Sensitive institutional metrics are publicly accessible.
 
 ### ISS-074: Student Re-enrollment Uses Hardcoded Academic Year
+
 - **Module:** Student / Re-enrollment
 - **Severity:** Medium
 - **File:** `src/routes/dashboard/student.enrollment.tsx:83-86`
@@ -613,6 +645,7 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** Re-enrollment may create enrollments for the wrong academic year.
 
 ### ISS-075: Faculty Grades Page Does Not Validate Grade Range
+
 - **Module:** Faculty / Grading
 - **Severity:** Medium
 - **File:** `src/routes/dashboard/faculty.grades.tsx:174-220`
@@ -620,6 +653,7 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** Invalid grades can be saved to the database.
 
 ### ISS-076: Student Dashboard "Date Completed" Uses `reviewedAt`
+
 - **Module:** Student / Dashboard
 - **Severity:** Low
 - **File:** `src/routes/dashboard/student.index.tsx:679`
@@ -627,6 +661,7 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** Misleading graduation/completion date display.
 
 ### ISS-077: Faculty Dashboard "Recent Notifications" May Show Other Faculty's Notifications
+
 - **Module:** Faculty / Dashboard
 - **Severity:** Medium
 - **File:** `src/routes/dashboard/faculty.index.tsx:74`
@@ -634,6 +669,7 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** Faculty may see notifications intended for other users.
 
 ### ISS-078: Registrar Enrollment Page Does Not Validate Duplicate Enrollments
+
 - **Module:** Registrar / Enrollment
 - **Severity:** Medium
 - **File:** `src/routes/dashboard/registrar.enrollment.tsx:137-155`
@@ -641,6 +677,7 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** Duplicate enrollment records may be created if the endpoint were functional.
 
 ### ISS-079: No Audit Log for Sensitive Operations
+
 - **Module:** Security / API
 - **Severity:** Medium
 - **File:** `backend/index.js`
@@ -648,11 +685,12 @@ A comprehensive static code review was performed across the entire PIAT Academic
 - **Impact:** Security incidents cannot be traced or investigated.
 
 ### ISS-080: Student Registration Form Does Not Validate Email Uniqueness Before Submission
+
 - **Module:** Student / Registration
 - **Severity:** Medium
 - **File:** `src/routes/register.tsx:207-209`
 - **Description:** The form checks `emailExists` only after the user clicks "Submit Registration".
-- **Impact:** Poor user experience—error occurs after full form submission.
+- **Impact:** Poor user experience—error occurs after full form submission. -->
 
 ---
 
@@ -660,15 +698,15 @@ A comprehensive static code review was performed across the entire PIAT Academic
 
 The following issues completely block core system workflows:
 
-| Workflow | Blocker Issue(s) |
-|----------|------------------|
-| **Enrollment** | ISS-006 (endpoint is no-op) |
-| **Re-enrollment** | ISS-004 (endpoint does nothing), ISS-005 (finalizes all grades) |
-| **Attendance (Web)** | ISS-030 (no UI to record), ISS-045 (duplicate routes) |
-| **Grade Entry (Midterm/Final)** | ISS-032 (only prelim saved), ISS-033 (submit only overall) |
-| **Student Self-Registration** | ISS-037 (validation mismatch), ISS-038 (false success message) |
-| **Mobile Attendance** | ISS-061 (no screens implemented) |
-| **Admin Settings** | ISS-018 (no persistence) |
+| Workflow                        | Blocker Issue(s)                                                |
+| ------------------------------- | --------------------------------------------------------------- |
+| **Enrollment**                  | ISS-006 (endpoint is no-op)                                     |
+| **Re-enrollment**               | ISS-004 (endpoint does nothing), ISS-005 (finalizes all grades) |
+| **Attendance (Web)**            | ISS-030 (no UI to record), ISS-045 (duplicate routes)           |
+| **Grade Entry (Midterm/Final)** | ISS-032 (only prelim saved), ISS-033 (submit only overall)      |
+| **Student Self-Registration**   | ISS-037 (validation mismatch), ISS-038 (false success message)  |
+| **Mobile Attendance**           | ISS-061 (no screens implemented)                                |
+| **Admin Settings**              | ISS-018 (no persistence)                                        |
 
 ---
 

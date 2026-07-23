@@ -4,10 +4,13 @@ import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import { openDb, initDb, run, all, get, withTransaction } from "./db.js";
 import { normalizeStudentPayload, normalizeUserPayload } from "./schema-utils.js";
-import { resolveProgramIdForStudent } from "./reenrollment-utils.js";
+import { inferReenrollmentTarget, resolveProgramIdForStudent } from "./reenrollment-utils.js";
 import { resolveAutoApprovalStatus, validateRegistrationPayload } from "./registration-workflow.js";
 import { resolveRequestIdentity } from "./auth-utils.js";
 import { buildAttendanceRecordPayload } from "./attendance-utils.js";
+import { buildGradeFinalizationQuery } from "./grade-finalization-utils.js";
+
+import { EventEmitter } from "node:events";
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -15,6 +18,9 @@ const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 const RATE_LIMIT_MAX_REQUESTS = 8;
 const JWT_SECRET = process.env.JWT_SECRET || "piat_mobile_secret";
 const loginRateLimitStore = new Map();
+const attendanceEventBus = new EventEmitter();
+const gradeEventBus = new EventEmitter();
+const enrollmentEventBus = new EventEmitter();
 
 function generateJwtToken(user) {
   return jwt.sign(
@@ -41,6 +47,93 @@ await initDb(db);
 function sendError(res, status, message, details = null) {
   return res.status(status).json({ error: message, ...(details ? { details } : {}) });
 }
+
+function validateBody(schema) {
+  return (req, res, next) => {
+    const errors = [];
+    const body = req.body || {};
+    for (const [field, rules] of Object.entries(schema)) {
+      const value = body[field];
+      if (rules.required && (value === undefined || value === null || (typeof value === "string" && !value.trim()))) {
+        errors.push(`${field} is required`);
+        continue;
+      }
+      if (value === undefined || value === null) continue;
+      if (rules.type === "string" && typeof value !== "string") {
+        errors.push(`${field} must be a string`);
+      }
+      if (rules.type === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+        errors.push(`${field} must be a valid email`);
+      }
+      if (rules.type === "integer" && !Number.isInteger(Number(value))) {
+        errors.push(`${field} must be an integer`);
+      }
+      if (rules.type === "array" && !Array.isArray(value)) {
+        errors.push(`${field} must be an array`);
+      }
+      if (rules.enum && !rules.enum.includes(value)) {
+        errors.push(`${field} must be one of: ${rules.enum.join(", ")}`);
+      }
+    }
+    if (errors.length) {
+      return sendError(res, 400, "Validation error", errors);
+    }
+    next();
+  };
+}
+
+function paginateResults(rows, page, limit) {
+  const pageNum = Math.max(1, parseInt(page, 10) || 1);
+  const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10) || 20));
+  const total = rows.length;
+  const totalPages = Math.max(1, Math.ceil(total / limitNum));
+  const start = (pageNum - 1) * limitNum;
+  return {
+    data: rows.slice(start, start + limitNum),
+    total,
+    page: pageNum,
+    limit: limitNum,
+    totalPages,
+  };
+}
+
+function getPaginationParams(req) {
+  return {
+    page: parseInt(req.query.page, 10) || 1,
+    limit: parseInt(req.query.limit, 10) || 20,
+  };
+}
+
+class SimpleCache {
+  constructor(ttlMs = 30000) {
+    this.ttlMs = ttlMs;
+    this.cache = new Map();
+  }
+
+  get(key) {
+    const entry = this.cache.get(key);
+    if (!entry) return null;
+    if (Date.now() > entry.expiresAt) {
+      this.cache.delete(key);
+      return null;
+    }
+    return entry.value;
+  }
+
+  set(key, value, ttlMs) {
+    this.cache.set(key, {
+      value,
+      expiresAt: Date.now() + (ttlMs || this.ttlMs),
+    });
+  }
+
+  clear() {
+    this.cache.clear();
+  }
+}
+
+const defaultCache = new SimpleCache(30000);
+const programCache = new SimpleCache(300000);
 
 function validateRequiredFields(req, res, next, fields) {
   const missing = fields.filter((field) => {
@@ -98,7 +191,8 @@ function requireSelfOrRole(resourceParamName, ...allowedRoles) {
   return (req, res, next) => {
     const { role, userId, studentId } = getRequestIdentity(req);
     const requested = req.params[resourceParamName];
-    const isSelf = role === "student" && requested && (userId === requested || studentId === requested);
+    const isSelf =
+      role === "student" && requested && (userId === requested || studentId === requested);
     if (!allowedRoles.includes(role) && !isSelf) {
       return res.status(403).json({ error: "Forbidden" });
     }
@@ -165,7 +259,16 @@ async function createNotificationRecord(userId, type, title, message, relatedId 
     db,
     `INSERT INTO notifications (id, userId, type, title, message, read, createdAt, relatedId)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [notification.id, notification.userId, notification.type, notification.title, notification.message, notification.read, notification.createdAt, notification.relatedId],
+    [
+      notification.id,
+      notification.userId,
+      notification.type,
+      notification.title,
+      notification.message,
+      notification.read,
+      notification.createdAt,
+      notification.relatedId,
+    ],
   );
 
   return notification;
@@ -181,7 +284,13 @@ async function notifyUsers(userIds, type, title, message, relatedId = null) {
 
 async function notifyRoleUsers(role, type, title, message, relatedId = null) {
   const users = await all(db, "SELECT id FROM users WHERE role = ? AND status = 'active'", [role]);
-  return notifyUsers(users.map((user) => user.id), type, title, message, relatedId);
+  return notifyUsers(
+    users.map((user) => user.id),
+    type,
+    title,
+    message,
+    relatedId,
+  );
 }
 
 async function notifyRegistrarUsers(type, title, message, relatedId = null) {
@@ -207,44 +316,72 @@ async function createActivityLog(actorId, actorName, action, details, role) {
     db,
     `INSERT INTO activity_logs (id, actorId, actorName, action, details, role, createdAt)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [entry.id, entry.actorId, entry.actorName, entry.action, entry.details, entry.role, entry.createdAt],
+    [
+      entry.id,
+      entry.actorId,
+      entry.actorName,
+      entry.action,
+      entry.details,
+      entry.role,
+      entry.createdAt,
+    ],
   );
 
   return entry;
 }
 
-async function syncStudentEnrollment(student) {
+async function syncStudentEnrollment(student, overrides = {}) {
   if (!student?.studentId || !student.program || !student.yearLevel || !student.semester) {
     return [];
   }
-  const academicYear = student.academicYear || `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`;
-  const semester = student.semester;
-  // Find matching subjects for the student's program/year/semester
+
+  const targetYearLevel = overrides.yearLevel || student.yearLevel;
+  const targetSemester = overrides.semester || student.semester;
+  const academicYear =
+    overrides.academicYear ||
+    student.academicYear ||
+    `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`;
+
   const subjects = await all(
     db,
     `SELECT id FROM subjects WHERE program = ? AND yearLevel = ? AND semester = ?`,
-    [student.program, student.yearLevel, semester],
+    [student.program, targetYearLevel, targetSemester],
   );
 
   if (!subjects || subjects.length === 0) return [];
 
+  const subjectIds = subjects.map((s) => s.id);
+  const enrolledRows = await all(
+    db,
+    `SELECT subjectId FROM enrollments WHERE studentId = ? AND academicYear = ? AND semester = ? AND subjectId IN (${subjectIds.map(() => "?").join(",")})`,
+    [student.studentId, academicYear, targetSemester, ...subjectIds],
+  );
+  const enrolledSet = new Set(enrolledRows.map((r) => r.subjectId));
+
   const createdEnrollments = [];
   for (const s of subjects) {
-    const existing = await get(db, "SELECT * FROM enrollments WHERE studentId = ? AND subjectId = ? AND academicYear = ? AND semester = ?", [student.studentId, s.id, academicYear, semester]);
-    if (existing) continue;
+    if (enrolledSet.has(s.id)) continue;
     const enrollment = {
       id: crypto.randomUUID(),
       studentId: String(student.studentId),
       subjectId: String(s.id),
       academicYear,
-      semester,
+      semester: targetSemester,
       enrolledAt: new Date().toISOString(),
       status: "enrolled",
     };
     await run(
       db,
       `INSERT INTO enrollments (id, studentId, subjectId, academicYear, semester, enrolledAt, status) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [enrollment.id, enrollment.studentId, enrollment.subjectId, enrollment.academicYear, enrollment.semester, enrollment.enrolledAt, enrollment.status],
+      [
+        enrollment.id,
+        enrollment.studentId,
+        enrollment.subjectId,
+        enrollment.academicYear,
+        enrollment.semester,
+        enrollment.enrolledAt,
+        enrollment.status,
+      ],
     );
     createdEnrollments.push(enrollment);
   }
@@ -253,6 +390,10 @@ async function syncStudentEnrollment(student) {
 }
 
 app.get("/api/subjects", async (req, res) => {
+  const cacheKey = "subjects:all";
+  const cached = defaultCache.get(cacheKey);
+  if (cached) return res.json(cached);
+
   const rows = await all(
     db,
     `SELECT * FROM subjects
@@ -272,7 +413,9 @@ app.get("/api/subjects", async (req, res) => {
        END,
        code`,
   );
-  res.json(rows);
+  const result = paginateResults(rows, req.query.page, req.query.limit);
+  defaultCache.set(cacheKey, result, 60000);
+  res.json(result);
 });
 
 app.get("/api/subjects/:id", async (req, res) => {
@@ -281,9 +424,21 @@ app.get("/api/subjects/:id", async (req, res) => {
   res.json(row);
 });
 
-app.post("/api/subjects", async (req, res) => {
-  const { code, title, units, schedule, room, instructor, program, yearLevel, semester, facultyId } = req.body;
-  if (!code || !title) return res.status(400).json({ error: "Subject code and title are required" });
+app.post("/api/subjects",
+  validateBody({ code: { required: true }, title: { required: true } }),
+  async (req, res) => {
+  const {
+    code,
+    title,
+    units,
+    schedule,
+    room,
+    instructor,
+    program,
+    yearLevel,
+    semester,
+    facultyId,
+  } = req.body;
   const subject = {
     id: crypto.randomUUID(),
     code: String(code).toUpperCase(),
@@ -303,19 +458,50 @@ app.post("/api/subjects", async (req, res) => {
     db,
     `INSERT INTO subjects (id, code, title, units, schedule, room, instructor, program, yearLevel, semester, facultyId, academicYear, addedAt)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [subject.id, subject.code, subject.title, subject.units, subject.schedule, subject.room, subject.instructor, subject.program, subject.yearLevel, subject.semester, subject.facultyId, subject.academicYear, subject.addedAt],
+    [
+      subject.id,
+      subject.code,
+      subject.title,
+      subject.units,
+      subject.schedule,
+      subject.room,
+      subject.instructor,
+      subject.program,
+      subject.yearLevel,
+      subject.semester,
+      subject.facultyId,
+      subject.academicYear,
+      subject.addedAt,
+    ],
   );
   if (subject.facultyId) {
     const faculty = await get(db, "SELECT id FROM users WHERE id = ?", [subject.facultyId]);
     if (faculty) {
-      await createNotificationRecord(faculty.id, "schedule", "Faculty Assignment Completed", `${subject.code} has been assigned to you.`, subject.id);
+      await createNotificationRecord(
+        faculty.id,
+        "schedule",
+        "Faculty Assignment Completed",
+        `${subject.code} has been assigned to you.`,
+        subject.id,
+      );
     }
   }
   res.status(201).json(subject);
 });
 
 app.put("/api/subjects/:id", async (req, res) => {
-  const { code, title, units, schedule, room, instructor, program, yearLevel, semester, facultyId } = req.body;
+  const {
+    code,
+    title,
+    units,
+    schedule,
+    room,
+    instructor,
+    program,
+    yearLevel,
+    semester,
+    facultyId,
+  } = req.body;
   const existing = await get(db, "SELECT * FROM subjects WHERE id = ?", [req.params.id]);
   if (!existing) return res.status(404).json({ error: "Subject not found" });
   const updated = {
@@ -334,12 +520,30 @@ app.put("/api/subjects/:id", async (req, res) => {
   await run(
     db,
     `UPDATE subjects SET code = ?, title = ?, units = ?, schedule = ?, room = ?, instructor = ?, program = ?, yearLevel = ?, semester = ?, facultyId = ? WHERE id = ?`,
-    [updated.code, updated.title, updated.units, updated.schedule, updated.room, updated.instructor, updated.program, updated.yearLevel, updated.semester, updated.facultyId, req.params.id],
+    [
+      updated.code,
+      updated.title,
+      updated.units,
+      updated.schedule,
+      updated.room,
+      updated.instructor,
+      updated.program,
+      updated.yearLevel,
+      updated.semester,
+      updated.facultyId,
+      req.params.id,
+    ],
   );
   if (updated.facultyId && updated.facultyId !== existing.facultyId) {
     const faculty = await get(db, "SELECT id FROM users WHERE id = ?", [updated.facultyId]);
     if (faculty) {
-      await createNotificationRecord(faculty.id, "schedule", "Faculty Assignment Completed", `${updated.code} has been assigned to you.`, updated.id);
+      await createNotificationRecord(
+        faculty.id,
+        "schedule",
+        "Faculty Assignment Completed",
+        `${updated.code} has been assigned to you.`,
+        updated.id,
+      );
     }
   }
   res.json(updated);
@@ -353,341 +557,464 @@ app.delete("/api/subjects/:id", async (req, res) => {
 app.get("/api/students", requireRole("admin", "registrar"), async (req, res) => {
   const status = req.query.status ? String(req.query.status) : null;
   const query = status
-    ? { sql: "SELECT * FROM students WHERE status = ? ORDER BY lastName, firstName", params: [status] }
+    ? {
+        sql: "SELECT * FROM students WHERE status = ? ORDER BY lastName, firstName",
+        params: [status],
+      }
     : { sql: "SELECT * FROM students ORDER BY lastName, firstName", params: [] };
   const rows = await all(db, query.sql, query.params);
-  res.json(rows.map(sanitizeStudentRecord));
+  const result = paginateResults(rows.map(sanitizeStudentRecord), req.query.page, req.query.limit);
+  res.json(result);
 });
 
-app.get("/api/students/:studentId", requireSelfOrRole("studentId", "admin", "registrar"), async (req, res) => {
-  const row = await get(db, "SELECT * FROM students WHERE studentId = ?", [req.params.studentId]);
-  if (!row) return res.status(404).json({ error: "Student not found" });
-  res.json(sanitizeStudentRecord(row));
-});
+app.get(
+  "/api/students/:studentId",
+  requireSelfOrRole("studentId", "admin", "registrar"),
+  async (req, res) => {
+    const row = await get(db, "SELECT * FROM students WHERE studentId = ?", [req.params.studentId]);
+    if (!row) return res.status(404).json({ error: "Student not found" });
+    res.json(sanitizeStudentRecord(row));
+  },
+);
 
-app.post("/api/students", requireRole("admin", "registrar"), (req, res, next) => validateRequiredFields(req, res, next, ["firstName", "lastName", "email", "password", "educationLevel"]), async (req, res) => {
-  const {
-    firstName,
-    lastName,
-    middleName,
-    suffix,
-    email,
-    password,
-    gender,
-    dob,
-    age,
-    civilStatus,
-    nationality,
-    religion,
-    educationLevel,
-    program,
-    yearLevel,
-    gradeLevel,
-    strand,
-    studentType,
-    academicYear,
-    semester,
-    section,
-    previousSchool,
-    lastGrade,
-    contactNumber,
-    city,
-    province,
-    zip,
-    fatherName,
-    fatherOccupation,
-    fatherContact,
-    motherName,
-    motherOccupation,
-    motherContact,
-    guardianName,
-    guardianOccupation,
-    guardianContact,
-    guardianRelation,
-    parentName,
-    parentContact,
-    parentAddress,
-    emergencyName,
-    emergencyContact,
-    emergencyAddress,
-    emergencyRelation,
-    address,
-    placeOfBirth,
-    barangay,
-    parentRelationship,
-  } = req.body;
-  if (!firstName || !lastName || !email || !password || !educationLevel) {
-    return res.status(400).json({ error: "Missing required student registration fields" });
-  }
-  const students = await all(db, "SELECT studentId FROM students WHERE studentId LIKE ?", [`${new Date().getFullYear()}-%`]);
-  const nextId = `${new Date().getFullYear()}-${String(students.length + 1).padStart(5, "0")}`;
-  const passwordHash = hashPassword(String(password));
-  const student = normalizeStudentPayload({
-    id: crypto.randomUUID(),
-    studentId: nextId,
-    firstName,
-    lastName,
-    middleName,
-    suffix,
-    email,
-    password: passwordHash,
-    gender,
-    dob,
-    age,
-    civilStatus,
-    nationality,
-    religion,
-    educationLevel,
-    program,
-    yearLevel,
-    gradeLevel,
-    strand,
-    studentType,
-    academicYear,
-    semester,
-    section,
-    previousSchool,
-    lastGrade,
-    contactNumber,
-    address,
-    city,
-    province,
-    zip,
-    fatherName,
-    fatherOccupation,
-    fatherContact,
-    motherName,
-    motherOccupation,
-    motherContact,
-    guardianName,
-    guardianOccupation,
-    guardianContact,
-    guardianRelation,
-    parentName,
-    parentContact,
-    parentAddress,
-    emergencyName,
-    emergencyContact,
-    emergencyAddress,
-    emergencyRelation,
-    placeOfBirth,
-    barangay,
-    parentRelationship,
-    status: req.body.status,
-    submittedAt: new Date().toISOString(),
-    reviewedAt: null,
-    reviewNote: null,
-  });
-  await run(
-    db,
-    `INSERT INTO students (id, studentId, firstName, lastName, middleName, suffix, email, password, gender, educationLevel, program, yearLevel, studentType, academicYear, semester, status, submittedAt, reviewedAt, reviewNote, firstLoginAt, lastLoginAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      student.id,
-      student.studentId,
-      student.firstName,
-      student.lastName,
-      student.middleName,
-      student.suffix,
-      student.email,
-      student.password,
-      student.gender,
-      student.educationLevel,
-      student.program,
-      student.yearLevel,
-      student.studentType,
-      student.academicYear,
-      student.semester,
-      student.status,
-      student.submittedAt,
-      student.reviewedAt,
-      student.reviewNote,
-      null,
-      null,
-    ],
-  );
-  if (student.status === "approved") {
-    await syncStudentEnrollment(student);
-  }
-  await createActivityLog(req.userContext?.userId || "system", req.userContext?.role || "system", "Created student registration", `${student.firstName} ${student.lastName} (${student.studentId})`, req.userContext?.role || "system");
-  await notifyRegistrarUsers("registration", "New Registration Submitted", `${student.firstName} ${student.lastName} submitted a new application.`, student.studentId);
-  res.status(201).json(sanitizeStudentRecord(student));
-});
-
-app.put("/api/students/:studentId", requireSelfOrRole("studentId", "admin", "registrar"), async (req, res) => {
-  const existing = await get(db, "SELECT * FROM students WHERE studentId = ?", [req.params.studentId]);
-  if (!existing) return res.status(404).json({ error: "Student not found" });
-
-  const requestedStatus = req.body.status ? String(req.body.status).toLowerCase() : existing.status;
-  const mergedStudentData = {
-    ...existing,
-    firstName: req.body.firstName ?? existing.firstName,
-    lastName: req.body.lastName ?? existing.lastName,
-    middleName: req.body.middleName ?? existing.middleName,
-    suffix: req.body.suffix ?? existing.suffix,
-    email: req.body.email ? String(req.body.email).trim().toLowerCase() : existing.email,
-    password: req.body.password && String(req.body.password).length > 0 ? hashPassword(String(req.body.password)) : existing.password,
-    gender: req.body.gender ?? existing.gender,
-    dob: req.body.dob ?? existing.dob,
-    age: req.body.age ?? existing.age,
-    civilStatus: req.body.civilStatus ?? existing.civilStatus,
-    nationality: req.body.nationality ?? existing.nationality,
-    religion: req.body.religion ?? existing.religion,
-    educationLevel: req.body.educationLevel ?? existing.educationLevel,
-    program: req.body.program ?? existing.program,
-    yearLevel: req.body.yearLevel ?? existing.yearLevel,
-    gradeLevel: req.body.gradeLevel ?? existing.gradeLevel,
-    strand: req.body.strand ?? existing.strand,
-    studentType: req.body.studentType ?? existing.studentType,
-    academicYear: req.body.academicYear ?? existing.academicYear,
-    semester: req.body.semester ?? existing.semester,
-    section: req.body.section ?? existing.section,
-    previousSchool: req.body.previousSchool ?? existing.previousSchool,
-    lastGrade: req.body.lastGrade ?? existing.lastGrade,
-    contactNumber: req.body.contactNumber ?? existing.contactNumber,
-    address: req.body.address ?? existing.address,
-    city: req.body.city ?? existing.city,
-    province: req.body.province ?? existing.province,
-    zip: req.body.zip ?? existing.zip,
-    fatherName: req.body.fatherName ?? existing.fatherName,
-    fatherOccupation: req.body.fatherOccupation ?? existing.fatherOccupation,
-    fatherContact: req.body.fatherContact ?? existing.fatherContact,
-    motherName: req.body.motherName ?? existing.motherName,
-    motherOccupation: req.body.motherOccupation ?? existing.motherOccupation,
-    motherContact: req.body.motherContact ?? existing.motherContact,
-    guardianName: req.body.guardianName ?? existing.guardianName,
-    guardianOccupation: req.body.guardianOccupation ?? existing.guardianOccupation,
-    guardianContact: req.body.guardianContact ?? existing.guardianContact,
-    guardianRelation: req.body.guardianRelation ?? existing.guardianRelation,
-    parentName: req.body.parentName ?? existing.parentName,
-    parentContact: req.body.parentContact ?? existing.parentContact,
-    parentAddress: req.body.parentAddress ?? existing.parentAddress,
-    emergencyName: req.body.emergencyName ?? existing.emergencyName,
-    emergencyContact: req.body.emergencyContact ?? existing.emergencyContact,
-    emergencyAddress: req.body.emergencyAddress ?? existing.emergencyAddress,
-    emergencyRelation: req.body.emergencyRelation ?? existing.emergencyRelation,
-    placeOfBirth: req.body.placeOfBirth ?? existing.placeOfBirth,
-    barangay: req.body.barangay ?? existing.barangay,
-    parentRelationship: req.body.parentRelationship ?? existing.parentRelationship,
-  };
-
-  const validationResult = validateRegistrationPayload(mergedStudentData);
-  const nextStatus = resolveAutoApprovalStatus(requestedStatus, validationResult);
-
-  const updates = normalizeStudentPayload({
-    ...mergedStudentData,
-    status: nextStatus,
-    submittedAt: req.body.submittedAt ?? existing.submittedAt ?? new Date().toISOString(),
-    reviewedAt: nextStatus === "approved" && existing.status !== "approved" ? new Date().toISOString() : req.body.reviewedAt ?? existing.reviewedAt,
-    reviewNote: req.body.reviewNote ?? existing.reviewNote,
-  });
-
-  const result = await withTransaction(db, async () => {
+app.post(
+  "/api/students",
+  requireRole("admin", "registrar"),
+  (req, res, next) =>
+    validateRequiredFields(req, res, next, [
+      "firstName",
+      "lastName",
+      "email",
+      "password",
+      "educationLevel",
+    ]),
+  async (req, res) => {
+    const {
+      firstName,
+      lastName,
+      middleName,
+      suffix,
+      email,
+      password,
+      gender,
+      dob,
+      age,
+      civilStatus,
+      nationality,
+      religion,
+      educationLevel,
+      program,
+      yearLevel,
+      gradeLevel,
+      strand,
+      studentType,
+      academicYear,
+      semester,
+      section,
+      previousSchool,
+      lastGrade,
+      contactNumber,
+      city,
+      province,
+      zip,
+      fatherName,
+      fatherOccupation,
+      fatherContact,
+      motherName,
+      motherOccupation,
+      motherContact,
+      guardianName,
+      guardianOccupation,
+      guardianContact,
+      guardianRelation,
+      parentName,
+      parentContact,
+      parentAddress,
+      emergencyName,
+      emergencyContact,
+      emergencyAddress,
+      emergencyRelation,
+      address,
+      placeOfBirth,
+      barangay,
+      parentRelationship,
+    } = req.body;
+    if (!firstName || !lastName || !email || !password || !educationLevel) {
+      return res.status(400).json({ error: "Missing required student registration fields" });
+    }
+    const students = await all(db, "SELECT studentId FROM students WHERE studentId LIKE ?", [
+      `${new Date().getFullYear()}-%`,
+    ]);
+    const nextId = `${new Date().getFullYear()}-${String(students.length + 1).padStart(5, "0")}`;
+    const passwordHash = hashPassword(String(password));
+    const student = normalizeStudentPayload({
+      id: crypto.randomUUID(),
+      studentId: nextId,
+      firstName,
+      lastName,
+      middleName,
+      suffix,
+      email,
+      password: passwordHash,
+      gender,
+      dob,
+      age,
+      civilStatus,
+      nationality,
+      religion,
+      educationLevel,
+      program,
+      yearLevel,
+      gradeLevel,
+      strand,
+      studentType,
+      academicYear,
+      semester,
+      section,
+      previousSchool,
+      lastGrade,
+      contactNumber,
+      address,
+      city,
+      province,
+      zip,
+      fatherName,
+      fatherOccupation,
+      fatherContact,
+      motherName,
+      motherOccupation,
+      motherContact,
+      guardianName,
+      guardianOccupation,
+      guardianContact,
+      guardianRelation,
+      parentName,
+      parentContact,
+      parentAddress,
+      emergencyName,
+      emergencyContact,
+      emergencyAddress,
+      emergencyRelation,
+      placeOfBirth,
+      barangay,
+      parentRelationship,
+      status: req.body.status,
+      submittedAt: new Date().toISOString(),
+      reviewedAt: null,
+      reviewNote: null,
+    });
     await run(
       db,
-      `UPDATE students SET firstName = ?, lastName = ?, middleName = ?, suffix = ?, email = ?, password = ?, gender = ?, dob = ?, age = ?, civilStatus = ?, nationality = ?, religion = ?, educationLevel = ?, program = ?, yearLevel = ?, gradeLevel = ?, strand = ?, studentType = ?, academicYear = ?, semester = ?, section = ?, previousSchool = ?, lastGrade = ?, contactNumber = ?, address = ?, city = ?, province = ?, zip = ?, fatherName = ?, fatherOccupation = ?, fatherContact = ?, motherName = ?, motherOccupation = ?, motherContact = ?, guardianName = ?, guardianOccupation = ?, guardianContact = ?, guardianRelation = ?, parentName = ?, parentContact = ?, parentAddress = ?, emergencyName = ?, emergencyContact = ?, emergencyAddress = ?, emergencyRelation = ?, placeOfBirth = ?, barangay = ?, parentRelationship = ?, status = ?, submittedAt = ?, reviewedAt = ?, reviewNote = ? WHERE studentId = ?`,
+      `INSERT INTO students (id, studentId, firstName, lastName, middleName, suffix, email, password, gender, educationLevel, program, yearLevel, studentType, academicYear, semester, status, submittedAt, reviewedAt, reviewNote, firstLoginAt, lastLoginAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        updates.firstName,
-        updates.lastName,
-        updates.middleName,
-        updates.suffix,
-        updates.email,
-        updates.password,
-        updates.gender,
-        updates.dob,
-        updates.age,
-        updates.civilStatus,
-        updates.nationality,
-        updates.religion,
-        updates.educationLevel,
-        updates.program,
-        updates.yearLevel,
-        updates.gradeLevel,
-        updates.strand,
-        updates.studentType,
-        updates.academicYear,
-        updates.semester,
-        updates.section,
-        updates.previousSchool,
-        updates.lastGrade,
-        updates.contactNumber,
-        updates.address,
-        updates.city,
-        updates.province,
-        updates.zip,
-        updates.fatherName,
-        updates.fatherOccupation,
-        updates.fatherContact,
-        updates.motherName,
-        updates.motherOccupation,
-        updates.motherContact,
-        updates.guardianName,
-        updates.guardianOccupation,
-        updates.guardianContact,
-        updates.guardianRelation,
-        updates.parentName,
-        updates.parentContact,
-        updates.parentAddress,
-        updates.emergencyName,
-        updates.emergencyContact,
-        updates.emergencyAddress,
-        updates.emergencyRelation,
-        updates.placeOfBirth,
-        updates.barangay,
-        updates.parentRelationship,
-        updates.status,
-        updates.submittedAt,
-        updates.reviewedAt,
-        updates.reviewNote,
-        req.params.studentId,
+        student.id,
+        student.studentId,
+        student.firstName,
+        student.lastName,
+        student.middleName,
+        student.suffix,
+        student.email,
+        student.password,
+        student.gender,
+        student.educationLevel,
+        student.program,
+        student.yearLevel,
+        student.studentType,
+        student.academicYear,
+        student.semester,
+        student.status,
+        student.submittedAt,
+        student.reviewedAt,
+        student.reviewNote,
+        null,
+        null,
       ],
     );
-    if (updates.status === "approved" && existing.status !== "approved") {
-      await syncStudentEnrollment(updates);
-      await createNotificationRecord(req.params.studentId, "schedule", "Registration Completed", "Your registration has been successfully completed and approved. You may now access your Student Dashboard.", req.params.studentId);
-      await notifyRegistrarUsers("registration", "New student registration approved", "A new student registration has been automatically approved and enrolled. The student record is now available for monitoring and management.", req.params.studentId);
-      await notifyAdminUsers("registration", "Student registration completed", "A student has successfully completed registration and has been automatically enrolled.", req.params.studentId);
+    if (student.status === "approved") {
+      await syncStudentEnrollment(student);
     }
-    if (updates.status === "rejected" && existing.status !== "rejected") {
-      await createNotificationRecord(req.params.studentId, "schedule", "Application Rejected", "Your registration was not approved. Please contact the registrar for details.", req.params.studentId);
-    }
-    return updates;
-  });
+    await createActivityLog(
+      req.userContext?.userId || "system",
+      req.userContext?.role || "system",
+      "Created student registration",
+      `${student.firstName} ${student.lastName} (${student.studentId})`,
+      req.userContext?.role || "system",
+    );
+    await notifyRegistrarUsers(
+      "registration",
+      "New Registration Submitted",
+      `${student.firstName} ${student.lastName} submitted a new application.`,
+      student.studentId,
+    );
+    res.status(201).json(sanitizeStudentRecord(student));
+  },
+);
 
-  await createActivityLog(req.userContext?.userId || "system", req.userContext?.role || "system", updates.status === "approved" ? "Approved student registration" : updates.status === "rejected" ? "Rejected student registration" : "Updated student registration", `${req.params.studentId} -> ${updates.status}`, req.userContext?.role || "system");
-  res.json(sanitizeStudentRecord(result));
+app.put(
+  "/api/students/:studentId",
+  requireSelfOrRole("studentId", "admin", "registrar"),
+  async (req, res) => {
+    const existing = await get(db, "SELECT * FROM students WHERE studentId = ?", [
+      req.params.studentId,
+    ]);
+    if (!existing) return res.status(404).json({ error: "Student not found" });
+
+    const requestedStatus = req.body.status
+      ? String(req.body.status).toLowerCase()
+      : existing.status;
+    const mergedStudentData = {
+      ...existing,
+      firstName: req.body.firstName ?? existing.firstName,
+      lastName: req.body.lastName ?? existing.lastName,
+      middleName: req.body.middleName ?? existing.middleName,
+      suffix: req.body.suffix ?? existing.suffix,
+      email: req.body.email ? String(req.body.email).trim().toLowerCase() : existing.email,
+      password:
+        req.body.password && String(req.body.password).length > 0
+          ? hashPassword(String(req.body.password))
+          : existing.password,
+      gender: req.body.gender ?? existing.gender,
+      dob: req.body.dob ?? existing.dob,
+      age: req.body.age ?? existing.age,
+      civilStatus: req.body.civilStatus ?? existing.civilStatus,
+      nationality: req.body.nationality ?? existing.nationality,
+      religion: req.body.religion ?? existing.religion,
+      educationLevel: req.body.educationLevel ?? existing.educationLevel,
+      program: req.body.program ?? existing.program,
+      yearLevel: req.body.yearLevel ?? existing.yearLevel,
+      gradeLevel: req.body.gradeLevel ?? existing.gradeLevel,
+      strand: req.body.strand ?? existing.strand,
+      studentType: req.body.studentType ?? existing.studentType,
+      academicYear: req.body.academicYear ?? existing.academicYear,
+      semester: req.body.semester ?? existing.semester,
+      section: req.body.section ?? existing.section,
+      previousSchool: req.body.previousSchool ?? existing.previousSchool,
+      lastGrade: req.body.lastGrade ?? existing.lastGrade,
+      contactNumber: req.body.contactNumber ?? existing.contactNumber,
+      address: req.body.address ?? existing.address,
+      city: req.body.city ?? existing.city,
+      province: req.body.province ?? existing.province,
+      zip: req.body.zip ?? existing.zip,
+      fatherName: req.body.fatherName ?? existing.fatherName,
+      fatherOccupation: req.body.fatherOccupation ?? existing.fatherOccupation,
+      fatherContact: req.body.fatherContact ?? existing.fatherContact,
+      motherName: req.body.motherName ?? existing.motherName,
+      motherOccupation: req.body.motherOccupation ?? existing.motherOccupation,
+      motherContact: req.body.motherContact ?? existing.motherContact,
+      guardianName: req.body.guardianName ?? existing.guardianName,
+      guardianOccupation: req.body.guardianOccupation ?? existing.guardianOccupation,
+      guardianContact: req.body.guardianContact ?? existing.guardianContact,
+      guardianRelation: req.body.guardianRelation ?? existing.guardianRelation,
+      parentName: req.body.parentName ?? existing.parentName,
+      parentContact: req.body.parentContact ?? existing.parentContact,
+      parentAddress: req.body.parentAddress ?? existing.parentAddress,
+      emergencyName: req.body.emergencyName ?? existing.emergencyName,
+      emergencyContact: req.body.emergencyContact ?? existing.emergencyContact,
+      emergencyAddress: req.body.emergencyAddress ?? existing.emergencyAddress,
+      emergencyRelation: req.body.emergencyRelation ?? existing.emergencyRelation,
+      placeOfBirth: req.body.placeOfBirth ?? existing.placeOfBirth,
+      barangay: req.body.barangay ?? existing.barangay,
+      parentRelationship: req.body.parentRelationship ?? existing.parentRelationship,
+    };
+
+    const validationResult = validateRegistrationPayload(mergedStudentData);
+    const nextStatus = resolveAutoApprovalStatus(requestedStatus, validationResult);
+
+    const updates = normalizeStudentPayload({
+      ...mergedStudentData,
+      status: nextStatus,
+      submittedAt: req.body.submittedAt ?? existing.submittedAt ?? new Date().toISOString(),
+      reviewedAt:
+        nextStatus === "approved" && existing.status !== "approved"
+          ? new Date().toISOString()
+          : (req.body.reviewedAt ?? existing.reviewedAt),
+      reviewNote: req.body.reviewNote ?? existing.reviewNote,
+    });
+
+    const result = await withTransaction(db, async () => {
+      await run(
+        db,
+        `UPDATE students SET firstName = ?, lastName = ?, middleName = ?, suffix = ?, email = ?, password = ?, gender = ?, dob = ?, age = ?, civilStatus = ?, nationality = ?, religion = ?, educationLevel = ?, program = ?, yearLevel = ?, gradeLevel = ?, strand = ?, studentType = ?, academicYear = ?, semester = ?, section = ?, previousSchool = ?, lastGrade = ?, contactNumber = ?, address = ?, city = ?, province = ?, zip = ?, fatherName = ?, fatherOccupation = ?, fatherContact = ?, motherName = ?, motherOccupation = ?, motherContact = ?, guardianName = ?, guardianOccupation = ?, guardianContact = ?, guardianRelation = ?, parentName = ?, parentContact = ?, parentAddress = ?, emergencyName = ?, emergencyContact = ?, emergencyAddress = ?, emergencyRelation = ?, placeOfBirth = ?, barangay = ?, parentRelationship = ?, status = ?, submittedAt = ?, reviewedAt = ?, reviewNote = ? WHERE studentId = ?`,
+        [
+          updates.firstName,
+          updates.lastName,
+          updates.middleName,
+          updates.suffix,
+          updates.email,
+          updates.password,
+          updates.gender,
+          updates.dob,
+          updates.age,
+          updates.civilStatus,
+          updates.nationality,
+          updates.religion,
+          updates.educationLevel,
+          updates.program,
+          updates.yearLevel,
+          updates.gradeLevel,
+          updates.strand,
+          updates.studentType,
+          updates.academicYear,
+          updates.semester,
+          updates.section,
+          updates.previousSchool,
+          updates.lastGrade,
+          updates.contactNumber,
+          updates.address,
+          updates.city,
+          updates.province,
+          updates.zip,
+          updates.fatherName,
+          updates.fatherOccupation,
+          updates.fatherContact,
+          updates.motherName,
+          updates.motherOccupation,
+          updates.motherContact,
+          updates.guardianName,
+          updates.guardianOccupation,
+          updates.guardianContact,
+          updates.guardianRelation,
+          updates.parentName,
+          updates.parentContact,
+          updates.parentAddress,
+          updates.emergencyName,
+          updates.emergencyContact,
+          updates.emergencyAddress,
+          updates.emergencyRelation,
+          updates.placeOfBirth,
+          updates.barangay,
+          updates.parentRelationship,
+          updates.status,
+          updates.submittedAt,
+          updates.reviewedAt,
+          updates.reviewNote,
+          req.params.studentId,
+        ],
+      );
+      if (updates.status === "approved" && existing.status !== "approved") {
+        await syncStudentEnrollment(updates);
+        await createNotificationRecord(
+          req.params.studentId,
+          "schedule",
+          "Registration Completed",
+          "Your registration has been successfully completed and approved. You may now access your Student Dashboard.",
+          req.params.studentId,
+        );
+        await notifyRegistrarUsers(
+          "registration",
+          "New student registration approved",
+          "A new student registration has been automatically approved and enrolled. The student record is now available for monitoring and management.",
+          req.params.studentId,
+        );
+        await notifyAdminUsers(
+          "registration",
+          "Student registration completed",
+          "A student has successfully completed registration and has been automatically enrolled.",
+          req.params.studentId,
+        );
+      }
+      if (updates.status === "rejected" && existing.status !== "rejected") {
+        await createNotificationRecord(
+          req.params.studentId,
+          "schedule",
+          "Application Rejected",
+          "Your registration was not approved. Please contact the registrar for details.",
+          req.params.studentId,
+        );
+      }
+      return updates;
+    });
+
+    await createActivityLog(
+      req.userContext?.userId || "system",
+      req.userContext?.role || "system",
+      updates.status === "approved"
+        ? "Approved student registration"
+        : updates.status === "rejected"
+          ? "Rejected student registration"
+          : "Updated student registration",
+      `${req.params.studentId} -> ${updates.status}`,
+      req.userContext?.role || "system",
+    );
+    res.json(sanitizeStudentRecord(result));
+  },
+);
+
+app.get("/api/email-exists", async (req, res) => {
+  const email = String(req.query.email || "").trim().toLowerCase();
+  if (!email) {
+    return res.status(400).json({ error: "Email is required" });
+  }
+  const existing = await get(db, "SELECT studentId FROM students WHERE LOWER(email) = LOWER(?) LIMIT 1", [email]);
+  res.json({ exists: !!existing });
 });
 
-app.post("/api/students/login", applyRateLimit, (req, res, next) => validateRequiredFields(req, res, next, ["email", "password"]), async (req, res) => {
-  const { email, password } = req.body;
-  const student = await get(db, "SELECT * FROM students WHERE LOWER(email) = LOWER(?)", [email]);
-  if (!student || !verifyPassword(password, student.password)) {
-    await createActivityLog("system", "system", "Failed student login", String(email || "unknown"), "student");
-    return res.status(401).json({ error: "Invalid credentials" });
-  }
+app.post(
+  "/api/students/login",
+  applyRateLimit,
+  (req, res, next) => validateRequiredFields(req, res, next, ["email", "password"]),
+  async (req, res) => {
+    const { email, password } = req.body;
+    const student = await get(db, "SELECT * FROM students WHERE LOWER(email) = LOWER(?)", [email]);
+    if (!student || !verifyPassword(password, student.password)) {
+      await createActivityLog(
+        "system",
+        "system",
+        "Failed student login",
+        String(email || "unknown"),
+        "student",
+      );
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
 
-  const now = new Date().toISOString();
-  const isFirstLogin = !student.firstLoginAt;
-  const needsPasswordUpgrade = !String(student.password).startsWith("scrypt$");
-  if (needsPasswordUpgrade) {
-    await run(db, "UPDATE students SET password = ?, firstLoginAt = COALESCE(firstLoginAt, ?), lastLoginAt = ? WHERE id = ?", [hashPassword(String(password)), now, now, student.id]);
-  } else {
-    await run(db, "UPDATE students SET firstLoginAt = COALESCE(firstLoginAt, ?), lastLoginAt = ? WHERE id = ?", [now, now, student.id]);
-  }
-  if (isFirstLogin) {
-    await createNotificationRecord(student.id, "schedule", "Welcome to PIAT", "Welcome! Your student account is ready to use. Please review your profile and registration status.", student.id);
-  }
-  await createActivityLog(student.studentId, student.firstName || "Student", "Successful student login", "Student signed in", "student");
-  const updatedStudent = await get(db, "SELECT * FROM students WHERE id = ?", [student.id]);
-  const token = generateJwtToken(updatedStudent);
-  res.json({ ...sanitizeStudentRecord(updatedStudent), token });
-});
+    const now = new Date().toISOString();
+    const isFirstLogin = !student.firstLoginAt;
+    const needsPasswordUpgrade = !String(student.password).startsWith("scrypt$");
+    if (needsPasswordUpgrade) {
+      await run(
+        db,
+        "UPDATE students SET password = ?, firstLoginAt = COALESCE(firstLoginAt, ?), lastLoginAt = ? WHERE id = ?",
+        [hashPassword(String(password)), now, now, student.id],
+      );
+    } else {
+      await run(
+        db,
+        "UPDATE students SET firstLoginAt = COALESCE(firstLoginAt, ?), lastLoginAt = ? WHERE id = ?",
+        [now, now, student.id],
+      );
+    }
+    if (isFirstLogin) {
+      await createNotificationRecord(
+        student.id,
+        "schedule",
+        "Welcome to PIAT",
+        "Welcome! Your student account is ready to use. Please review your profile and registration status.",
+        student.id,
+      );
+    }
+    await createActivityLog(
+      student.studentId,
+      student.firstName || "Student",
+      "Successful student login",
+      "Student signed in",
+      "student",
+    );
+    const updatedStudent = await get(db, "SELECT * FROM students WHERE id = ?", [student.id]);
+    const token = generateJwtToken(updatedStudent);
+    res.json({ ...sanitizeStudentRecord(updatedStudent), token });
+  },
+);
 
 app.get("/api/grades", async (req, res) => {
   const identity = getRequestIdentity(req);
   const { subjectId } = req.query;
   const requestedStudentId = req.query.studentId ? String(req.query.studentId) : null;
-  const isSelf = identity.role === "student" && (!requestedStudentId || requestedStudentId === identity.studentId || requestedStudentId === identity.userId);
+  const isSelf =
+    identity.role === "student" &&
+    (!requestedStudentId ||
+      requestedStudentId === identity.studentId ||
+      requestedStudentId === identity.userId);
   if (!["admin", "faculty", "registrar"].includes(identity.role) && !isSelf) {
     return res.status(403).json({ error: "Forbidden" });
   }
@@ -714,7 +1041,7 @@ app.get("/api/grades", async (req, res) => {
      ORDER BY g.submittedAt DESC`,
     params,
   );
-  res.json(rows);
+  res.json(paginateResults(rows, req.query.page, req.query.limit));
 });
 
 app.post("/api/grades", requireRole("admin", "faculty"), async (req, res) => {
@@ -722,14 +1049,29 @@ app.post("/api/grades", requireRole("admin", "faculty"), async (req, res) => {
   if (!studentId || !subjectId || grade === undefined) {
     return res.status(400).json({ error: "studentId, subjectId, and grade are required" });
   }
-  const existing = await get(db, "SELECT * FROM grades WHERE studentId = ? AND subjectId = ? AND COALESCE(period, 'overall') = ?", [studentId, subjectId, period || "overall"]);
+  const existing = await get(
+    db,
+    "SELECT * FROM grades WHERE studentId = ? AND subjectId = ? AND COALESCE(period, 'overall') = ?",
+    [studentId, subjectId, period || "overall"],
+  );
   if (existing) {
     await run(
       db,
       `UPDATE grades SET grade = ?, remarks = ?, period = COALESCE(?, period), type = COALESCE(?, type), component = COALESCE(?, component), status = COALESCE(?, status), submittedAt = ? WHERE id = ?`,
-      [Number(grade), remarks || null, period || null, type || null, component || null, status || "draft", Date.now(), existing.id],
+      [
+        Number(grade),
+        remarks || null,
+        period || null,
+        type || null,
+        component || null,
+        status || "draft",
+        Date.now(),
+        existing.id,
+      ],
     );
     const updated = await get(db, "SELECT * FROM grades WHERE id = ?", [existing.id]);
+    gradeEventBus.emit("grades-changed", { type: "updated", record: updated });
+    await createActivityLog(req.userContext.userId, req.userContext.role || "faculty", "Updated grade", studentId + " / " + subjectId + " = " + grade, req.userContext.role);
     return res.json(updated);
   }
   const entry = {
@@ -747,50 +1089,81 @@ app.post("/api/grades", requireRole("admin", "faculty"), async (req, res) => {
   await run(
     db,
     `INSERT INTO grades (id, studentId, subjectId, grade, remarks, period, type, component, status, submittedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [entry.id, entry.studentId, entry.subjectId, entry.grade, entry.remarks, entry.period, entry.type, entry.component, entry.status, entry.submittedAt],
+    [
+      entry.id,
+      entry.studentId,
+      entry.subjectId,
+      entry.grade,
+      entry.remarks,
+      entry.period,
+      entry.type,
+      entry.component,
+      entry.status,
+      entry.submittedAt,
+    ],
   );
   if (entry.status === "submitted" || entry.status === "finalized") {
-    await createNotificationRecord(studentId, "grade", "Grade Posted", `Your grades have been submitted for the selected subject.`, entry.subjectId);
+    await createNotificationRecord(
+      studentId,
+      "grade",
+      "Grade Posted",
+      `Your grades have been submitted for the selected subject.`,
+      entry.subjectId,
+    );
   }
+  gradeEventBus.emit("grades-changed", { type: "created", record: entry });
+  await createActivityLog(req.userContext.userId, req.userContext.role || "faculty", "Created grade", studentId + " / " + subjectId + " = " + grade, req.userContext.role);
   res.status(201).json(entry);
 });
 
 app.delete("/api/grades", requireRole("admin", "faculty"), async (req, res) => {
   const { studentId, subjectId } = req.query;
-  if (!studentId || !subjectId) return res.status(400).json({ error: "studentId and subjectId are required" });
-  await run(db, "DELETE FROM grades WHERE studentId = ? AND subjectId = ?", [String(studentId), String(subjectId)]);
+  if (!studentId || !subjectId)
+    return res.status(400).json({ error: "studentId and subjectId are required" });
+  await run(db, "DELETE FROM grades WHERE studentId = ? AND subjectId = ?", [
+    String(studentId),
+    String(subjectId),
+  ]);
+  gradeEventBus.emit("grades-changed", {
+    type: "deleted",
+    studentId: String(studentId),
+    subjectId: String(subjectId),
+  });
+  await createActivityLog(req.userContext.userId, req.userContext.role || "faculty", "Deleted grade", studentId + " / " + subjectId, req.userContext.role);
   res.status(204).end();
 });
 
-app.get("/api/attendance", requireRole("admin", "faculty", "registrar", "student"), async (req, res) => {
-  const subjectId = req.query.subjectId ? String(req.query.subjectId) : null;
-  const date = req.query.date ? String(req.query.date) : null;
-  const studentId = req.query.studentId ? String(req.query.studentId) : null;
-  if (!subjectId && !studentId) return sendError(res, 400, "subjectId or studentId is required");
+app.get(
+  "/api/attendance",
+  requireRole("admin", "faculty", "registrar", "student"),
+  async (req, res) => {
+    const subjectId = req.query.subjectId ? String(req.query.subjectId) : null;
+    const date = req.query.date ? String(req.query.date) : null;
+    const studentId = req.query.studentId ? String(req.query.studentId) : null;
+    if (!subjectId && !studentId) return sendError(res, 400, "subjectId or studentId is required");
 
-  let rows;
-  if (date) {
-    rows = await all(
-      db,
-      "SELECT * FROM attendance WHERE subjectId = ? AND date = ? ORDER BY studentId",
-      [subjectId, date],
-    );
-  } else if (studentId) {
-    rows = await all(
-      db,
-      "SELECT * FROM attendance WHERE studentId = ? ORDER BY date DESC",
-      [studentId],
-    );
-  } else {
-    rows = await all(
-      db,
-      "SELECT * FROM attendance WHERE subjectId = ? ORDER BY date DESC, studentId",
-      [subjectId],
-    );
-  }
+    let rows;
+    if (date) {
+      rows = await all(
+        db,
+        "SELECT * FROM attendance WHERE subjectId = ? AND date = ? ORDER BY studentId",
+        [subjectId, date],
+      );
+    } else if (studentId) {
+      rows = await all(db, "SELECT * FROM attendance WHERE studentId = ? ORDER BY date DESC", [
+        studentId,
+      ]);
+    } else {
+      rows = await all(
+        db,
+        "SELECT * FROM attendance WHERE subjectId = ? ORDER BY date DESC, studentId",
+        [subjectId],
+      );
+    }
 
-  res.json(rows);
-});
+    res.json(rows);
+  },
+);
 
 app.post("/api/attendance", requireRole("admin", "faculty"), async (req, res) => {
   const { studentId, subjectId, date, status, time, section } = req.body;
@@ -830,9 +1203,31 @@ app.post("/api/attendance", requireRole("admin", "faculty"), async (req, res) =>
     await run(
       db,
       `UPDATE attendance SET studentName = ?, subjectCode = ?, subjectTitle = ?, facultyId = ?, time = ?, academicYear = ?, semester = ?, program = ?, yearLevel = ?, section = ?, status = ?, updatedAt = ? WHERE id = ?`,
-      [payload.studentName, payload.subjectCode, payload.subjectTitle, payload.facultyId, payload.time, payload.academicYear, payload.semester, payload.program, payload.yearLevel, payload.section, payload.status, payload.updatedAt, existing.id],
+      [
+        payload.studentName,
+        payload.subjectCode,
+        payload.subjectTitle,
+        payload.facultyId,
+        payload.time,
+        payload.academicYear,
+        payload.semester,
+        payload.program,
+        payload.yearLevel,
+        payload.section,
+        payload.status,
+        payload.updatedAt,
+        existing.id,
+      ],
     );
     const updated = await get(db, "SELECT * FROM attendance WHERE id = ?", [existing.id]);
+    attendanceEventBus.emit("attendance-changed", { type: "updated", record: updated });
+    await createActivityLog(
+      req.userContext.userId,
+      req.userContext.role || "faculty",
+      "Updated attendance",
+      `${studentId} / ${subjectId} / ${date} -> ${payload.status}`,
+      req.userContext.role,
+    );
     return res.json(updated);
   }
 
@@ -840,24 +1235,122 @@ app.post("/api/attendance", requireRole("admin", "faculty"), async (req, res) =>
     db,
     `INSERT INTO attendance (id, studentId, studentName, subjectId, subjectCode, subjectTitle, facultyId, date, time, academicYear, semester, program, yearLevel, section, status, updatedAt)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [payload.id, payload.studentId, payload.studentName, payload.subjectId, payload.subjectCode, payload.subjectTitle, payload.facultyId, payload.date, payload.time, payload.academicYear, payload.semester, payload.program, payload.yearLevel, payload.section, payload.status, payload.updatedAt],
+    [
+      payload.id,
+      payload.studentId,
+      payload.studentName,
+      payload.subjectId,
+      payload.subjectCode,
+      payload.subjectTitle,
+      payload.facultyId,
+      payload.date,
+      payload.time,
+      payload.academicYear,
+      payload.semester,
+      payload.program,
+      payload.yearLevel,
+      payload.section,
+      payload.status,
+      payload.updatedAt,
+    ],
+  );
+  const created = await get(db, "SELECT * FROM attendance WHERE id = ?", [payload.id]);
+  attendanceEventBus.emit("attendance-changed", { type: "created", record: created });
+  await createActivityLog(
+    req.userContext.userId,
+    req.userContext.role || "faculty",
+    "Created attendance",
+    `${studentId} / ${subjectId} / ${payload.date} -> ${payload.status}`,
+    req.userContext.role,
   );
   res.status(201).json(payload);
 });
 
+// Server-Sent Events for attendance changes
+app.get("/api/events/attendance", (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.write(": connected\n\n");
 
+  const subjectId = req.query.subjectId ? String(req.query.subjectId) : null;
+  const studentId = req.query.studentId ? String(req.query.studentId) : null;
+
+  const handler = (event) => {
+    if (subjectId && event.record?.subjectId !== subjectId) return;
+    if (studentId && event.record?.studentId !== studentId) return;
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+  };
+
+  attendanceEventBus.on("attendance-changed", handler);
+
+  req.on("close", () => {
+    attendanceEventBus.off("attendance-changed", handler);
+  });
+});
+
+// Server-Sent Events for grade changes
+app.get("/api/events/grades", (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.write(": connected\n\n");
+
+  const studentId = req.query.studentId ? String(req.query.studentId) : null;
+  const subjectId = req.query.subjectId ? String(req.query.subjectId) : null;
+
+  const handler = (event) => {
+    if (studentId && event.studentId !== studentId) return;
+    if (subjectId && event.subjectId !== subjectId) return;
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+  };
+
+  gradeEventBus.on("grades-changed", handler);
+
+  req.on("close", () => {
+    gradeEventBus.off("grades-changed", handler);
+  });
+});
+
+// Server-Sent Events for enrollment changes
+app.get("/api/events/enrollments", (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.write(": connected\n\n");
+
+  const studentId = req.query.studentId ? String(req.query.studentId) : null;
+
+  const handler = (event) => {
+    if (studentId && event.studentId !== studentId) return;
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+  };
+
+  enrollmentEventBus.on("enrollments-changed", handler);
+
+  req.on("close", () => {
+    enrollmentEventBus.off("enrollments-changed", handler);
+  });
+});
 
 // Notifications endpoints
-app.get("/api/notifications", async (req, res) => {
+app.get("/api/notifications", requireRole("admin", "faculty", "registrar", "student"), async (req, res) => {
+  const identity = getRequestIdentity(req);
   const userId = req.query.userId ? String(req.query.userId) : null;
-  if (!userId) return res.status(400).json({ error: "userId is required" });
+
+  if (userId && userId !== identity.userId && userId !== identity.studentId) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+
+  const filterUserId = userId || identity.userId || identity.studentId;
+  if (!filterUserId) return res.status(400).json({ error: "userId is required" });
 
   const rows = await all(
     db,
     "SELECT * FROM notifications WHERE userId = ? ORDER BY createdAt DESC",
-    [userId],
+    [filterUserId],
   );
-  res.json(rows);
+  res.json(paginateResults(rows, req.query.page, req.query.limit));
 });
 
 app.post("/api/notifications", async (req, res) => {
@@ -913,107 +1406,185 @@ app.delete("/api/notifications", async (req, res) => {
   res.status(204).end();
 });
 
-app.get("/api/activity-logs", requireRole("admin"), async (_req, res) => {
-  const rows = await all(db, "SELECT * FROM activity_logs ORDER BY createdAt DESC LIMIT 20");
-  res.json(rows);
+app.get("/api/activity-logs", requireRole("admin"), async (req, res) => {
+  const rows = await all(db, "SELECT * FROM activity_logs ORDER BY createdAt DESC");
+  res.json(paginateResults(rows, req.query.page, req.query.limit));
 });
 
 // Users endpoints
 app.get("/api/users", requireRole("admin", "registrar"), async (req, res) => {
   const role = req.query.role ? String(req.query.role) : null;
   const query = role
-    ? { sql: "SELECT id, userId, username, firstName, middleName, lastName, email, studentId, role, status, program, yearLevel, createdAt, temporaryPassword FROM users WHERE role = ? ORDER BY lastName, firstName", params: [role] }
-    : { sql: "SELECT id, userId, username, firstName, middleName, lastName, email, studentId, role, status, program, yearLevel, createdAt, temporaryPassword FROM users ORDER BY lastName, firstName", params: [] };
+    ? {
+        sql: "SELECT id, userId, username, firstName, middleName, lastName, email, studentId, role, status, program, yearLevel, createdAt, temporaryPassword FROM users WHERE role = ? ORDER BY lastName, firstName",
+        params: [role],
+      }
+    : {
+        sql: "SELECT id, userId, username, firstName, middleName, lastName, email, studentId, role, status, program, yearLevel, createdAt, temporaryPassword FROM users ORDER BY lastName, firstName",
+        params: [],
+      };
   const rows = await all(db, query.sql, query.params);
-  res.json(rows.map(sanitizeUserRecord));
+  res.json(paginateResults(rows.map(sanitizeUserRecord), req.query.page, req.query.limit));
 });
 
-app.post("/api/users", requireRole("admin"), (req, res, next) => validateRequiredFields(req, res, next, ["role", "firstName", "lastName"]), async (req, res) => {
-  const { role, studentId, firstName, middleName, lastName, suffix, gender, email, password, program, yearLevel, semester, academicYear } = req.body;
+app.post(
+  "/api/users",
+  requireRole("admin"),
+  (req, res, next) => validateRequiredFields(req, res, next, ["role", "firstName", "lastName"]),
+  async (req, res) => {
+    const {
+      role,
+      studentId,
+      firstName,
+      middleName,
+      lastName,
+      suffix,
+      gender,
+      email,
+      password,
+      program,
+      yearLevel,
+      semester,
+      academicYear,
+    } = req.body;
 
-  const users = await all(db, "SELECT userId FROM users WHERE role = ?", [role]);
-  let maxNum = 0;
-  for (const user of users) {
-    const match = user.userId.match(/-(\d+)$/);
-    if (match) {
-      const num = parseInt(match[1], 10);
-      if (num > maxNum) maxNum = num;
-    }
-  }
-  const nextId = `${role.toUpperCase().slice(0, 3)}-${String(maxNum + 1).padStart(5, "0")}`;
-  const username = `user${firstName.charAt(0).toLowerCase()}${lastName.toLowerCase()}${Math.floor(1000 + Math.random() * 9000)}`;
-  const initialPassword = password ? String(password) : Math.random().toString(36).slice(2, 12);
+    const maxRow = await get(
+      db,
+      "SELECT MAX(CAST(SUBSTR(userId, -5) AS INTEGER)) AS maxNum FROM users WHERE role = ?",
+      [role],
+    );
+    const maxNum = maxRow?.maxNum || 0;
+    const nextId = `${role.toUpperCase().slice(0, 3)}-${String(maxNum + 1).padStart(5, "0")}`;
+    const username = `user${firstName.charAt(0).toLowerCase()}${lastName.toLowerCase()}${Math.floor(1000 + Math.random() * 9000)}`;
+    const initialPassword = password ? String(password) : Math.random().toString(36).slice(2, 12);
 
-  const user = normalizeUserPayload({
-    id: crypto.randomUUID(),
-    userId: nextId,
-    username,
-    email: email ? String(email).trim().toLowerCase() : `${username}@bwest.edu.ph`,
-    password: hashPassword(initialPassword),
-    firstName,
-    middleName,
-    lastName,
-    role,
-    status: "active",
-    program,
-    yearLevel: role === "student" ? "1st Year" : yearLevel ? String(yearLevel) : null,
-    createdAt: new Date().toISOString(),
-    temporaryPassword: initialPassword,
-  });
-
-  await run(
-    db,
-    `INSERT INTO users (id, userId, username, email, password, firstName, middleName, lastName, studentId, role, status, program, yearLevel, createdAt, temporaryPassword)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [user.id, user.userId, user.username, user.email, user.password, user.firstName, user.middleName, user.lastName, null, user.role, user.status, user.program, user.yearLevel, user.createdAt, user.temporaryPassword],
-  );
-
-  await createActivityLog(req.body.actorId || "system", req.body.actorName || "Admin", role === "student" ? "Created student account" : "Created staff account", `${user.firstName} ${user.lastName} (${user.role})`, user.role);
-  await createNotificationRecord(user.id, "schedule", "Account Ready", `Your account has been created successfully. Use your username and temporary password to sign in.`, user.id);
-
-  if (role === "student") {
-    const generatedStudentId = `${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`;
-    const normalizedStudentId = studentId ? String(studentId).trim() : generatedStudentId;
-    const student = normalizeStudentPayload({
+    const user = normalizeUserPayload({
       id: crypto.randomUUID(),
-      studentId: normalizedStudentId,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      middleName: user.middleName,
-      suffix: suffix ? String(suffix).trim() : null,
-      email: user.email,
-      password: user.password,
-      gender: gender ? String(gender) : null,
-      educationLevel: "College",
-      program: user.program || "",
-      yearLevel: "1st Year",
-      studentType: "Incoming Freshman",
-      academicYear: academicYear ? String(academicYear) : `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`,
-      semester: "1st Semester",
-      status: "not_started",
-      submittedAt: new Date().toISOString(),
-      reviewedAt: new Date().toISOString(),
-      reviewNote: "Created by admin",
+      userId: nextId,
+      username,
+      email: email ? String(email).trim().toLowerCase() : `${username}@bwest.edu.ph`,
+      password: hashPassword(initialPassword),
+      firstName,
+      middleName,
+      lastName,
+      role,
+      status: "active",
+      program,
+      yearLevel: role === "student" ? "1st Year" : yearLevel ? String(yearLevel) : null,
+      semester: role === "student" ? "1st Semester" : semester ? String(semester) : null,
+      academicYear:
+        role === "student"
+          ? academicYear
+            ? String(academicYear)
+            : `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`
+          : academicYear
+            ? String(academicYear)
+            : null,
+      createdAt: new Date().toISOString(),
+      temporaryPassword: initialPassword,
     });
+
     await run(
       db,
-      `INSERT INTO students (id, studentId, firstName, lastName, middleName, suffix, email, password, gender, educationLevel, program, yearLevel, studentType, academicYear, semester, status, submittedAt, reviewedAt, reviewNote, firstLoginAt, lastLoginAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO users (id, userId, username, email, password, firstName, middleName, lastName, studentId, role, status, program, yearLevel, semester, academicYear, createdAt, temporaryPassword)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        student.id, student.studentId, student.firstName, student.lastName, student.middleName, student.suffix,
-        student.email, student.password, student.gender, student.educationLevel, student.program, student.yearLevel,
-        student.studentType, student.academicYear, student.semester, student.status,
-        student.submittedAt, student.reviewedAt, student.reviewNote,
+        user.id,
+        user.userId,
+        user.username,
+        user.email,
+        user.password,
+        user.firstName,
+        user.middleName,
+        user.lastName,
         null,
-        null,
+        user.role,
+        user.status,
+        user.program,
+        user.yearLevel,
+        user.semester,
+        user.academicYear,
+        user.createdAt,
+        user.temporaryPassword,
       ],
     );
-    // Link the created student record to the users table
-    await run(db, "UPDATE users SET studentId = ? WHERE id = ?", [student.studentId, user.id]);
-  }
 
-  res.status(201).json(sanitizeUserRecord(user));
-});
+    await createActivityLog(
+      req.body.actorId || "system",
+      req.body.actorName || "Admin",
+      role === "student" ? "Created student account" : "Created staff account",
+      `${user.firstName} ${user.lastName} (${user.role})`,
+      user.role,
+    );
+    await createNotificationRecord(
+      user.id,
+      "schedule",
+      "Account Ready",
+      `Your account has been created successfully. Use your username and temporary password to sign in.`,
+      user.id,
+    );
+
+    if (role === "student") {
+      const generatedStudentId = `${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`;
+      const normalizedStudentId = studentId ? String(studentId).trim() : generatedStudentId;
+      const student = normalizeStudentPayload({
+        id: crypto.randomUUID(),
+        studentId: normalizedStudentId,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        middleName: user.middleName,
+        suffix: suffix ? String(suffix).trim() : null,
+        email: user.email,
+        password: user.password,
+        gender: gender ? String(gender) : null,
+        educationLevel: "College",
+        program: user.program || "",
+        yearLevel: "1st Year",
+        studentType: "Incoming Freshman",
+        academicYear: academicYear
+          ? String(academicYear)
+          : `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`,
+        semester: "1st Semester",
+        status: "not_started",
+        submittedAt: new Date().toISOString(),
+        reviewedAt: new Date().toISOString(),
+        reviewNote: "Created by admin",
+      });
+      await run(
+        db,
+        `INSERT INTO students (id, studentId, firstName, lastName, middleName, suffix, email, password, gender, educationLevel, program, yearLevel, studentType, academicYear, semester, status, submittedAt, reviewedAt, reviewNote, firstLoginAt, lastLoginAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          student.id,
+          student.studentId,
+          student.firstName,
+          student.lastName,
+          student.middleName,
+          student.suffix,
+          student.email,
+          student.password,
+          student.gender,
+          student.educationLevel,
+          student.program,
+          student.yearLevel,
+          student.studentType,
+          student.academicYear,
+          student.semester,
+          student.status,
+          student.submittedAt,
+          student.reviewedAt,
+          student.reviewNote,
+          null,
+          null,
+        ],
+      );
+      await syncStudentEnrollment(student);
+      await run(db, "UPDATE users SET studentId = ? WHERE id = ?", [student.studentId, user.id]);
+    }
+
+    res.status(201).json(sanitizeUserRecord(user));
+  },
+);
 
 app.patch("/api/users/:id/status", requireRole("admin"), async (req, res) => {
   const { id } = req.params;
@@ -1021,7 +1592,11 @@ app.patch("/api/users/:id/status", requireRole("admin"), async (req, res) => {
   const existing = await get(db, "SELECT * FROM users WHERE id = ?", [id]);
   if (!existing) return res.status(404).json({ error: "User not found" });
   await run(db, "UPDATE users SET status = ? WHERE id = ?", [status || "inactive", id]);
-  const updated = await get(db, "SELECT id, userId, username, firstName, middleName, lastName, email, studentId, role, status, program, yearLevel, createdAt, temporaryPassword FROM users WHERE id = ?", [id]);
+  const updated = await get(
+    db,
+    "SELECT id, userId, username, firstName, middleName, lastName, email, studentId, role, status, program, yearLevel, createdAt, temporaryPassword FROM users WHERE id = ?",
+    [id],
+  );
   res.json(sanitizeUserRecord(updated));
 });
 
@@ -1041,82 +1616,182 @@ app.put("/api/users/:id", requireRole("admin"), async (req, res) => {
   await run(
     db,
     `UPDATE users SET firstName = ?, lastName = ?, middleName = ?, email = ?, program = ?, yearLevel = ? WHERE id = ?`,
-    [updates.firstName, updates.lastName, updates.middleName, updates.email, updates.program, updates.yearLevel, id]
+    [
+      updates.firstName,
+      updates.lastName,
+      updates.middleName,
+      updates.email,
+      updates.program,
+      updates.yearLevel,
+      id,
+    ],
   );
-  const updated = await get(db, "SELECT id, userId, username, firstName, middleName, lastName, email, studentId, role, status, program, yearLevel, createdAt, temporaryPassword FROM users WHERE id = ?", [id]);
+  const updated = await get(
+    db,
+    "SELECT id, userId, username, firstName, middleName, lastName, email, studentId, role, status, program, yearLevel, createdAt, temporaryPassword FROM users WHERE id = ?",
+    [id],
+  );
   res.json(sanitizeUserRecord(updated));
 });
 
-app.patch("/api/users/:id/password", requireSelfOrRole("id", "admin"), (req, res, next) => validateRequiredFields(req, res, next, ["password"]), async (req, res) => {
-  const { id } = req.params;
-  const { password } = req.body;
-  if (!password) return res.status(400).json({ error: "Password is required" });
-  const existing = await get(db, "SELECT * FROM users WHERE id = ?", [id]);
-  if (!existing) return res.status(404).json({ error: "User not found" });
-  const newPassword = String(password);
-  await run(db, "UPDATE users SET password = ?, temporaryPassword = ? WHERE id = ?", [hashPassword(newPassword), newPassword, id]);
-  const updated = await get(db, "SELECT id, userId, username, firstName, middleName, lastName, email, role, status, program, yearLevel, createdAt, temporaryPassword FROM users WHERE id = ?", [id]);
-  res.json(sanitizeUserRecord(updated));
-});
+app.patch(
+  "/api/users/:id/password",
+  requireSelfOrRole("id", "admin"),
+  (req, res, next) => validateRequiredFields(req, res, next, ["password"]),
+  async (req, res) => {
+    const { id } = req.params;
+    const { password } = req.body;
+    if (!password) return res.status(400).json({ error: "Password is required" });
+    const existing = await get(db, "SELECT * FROM users WHERE id = ?", [id]);
+    if (!existing) return res.status(404).json({ error: "User not found" });
+    const newPassword = String(password);
+    await run(db, "UPDATE users SET password = ?, temporaryPassword = ? WHERE id = ?", [
+      hashPassword(newPassword),
+      newPassword,
+      id,
+    ]);
+    const updated = await get(
+      db,
+      "SELECT id, userId, username, firstName, middleName, lastName, email, role, status, program, yearLevel, createdAt, temporaryPassword FROM users WHERE id = ?",
+      [id],
+    );
+    res.json(sanitizeUserRecord(updated));
+    await createActivityLog(
+      req.userContext?.userId || "system",
+      req.userContext?.role || "system",
+      "Changed user password",
+      `User id=${id} (${existing.email})`,
+      req.userContext?.role || "system",
+    );
+  },
+);
 
-app.post("/api/users/login", applyRateLimit, (req, res, next) => validateRequiredFields(req, res, next, ["email", "password"]), async (req, res) => {
-  const { email, password } = req.body;
-  const user = await get(db, "SELECT id, userId, username, firstName, middleName, lastName, email, studentId, role, status, program, yearLevel, createdAt, temporaryPassword, password, firstLoginAt, lastLoginAt FROM users WHERE LOWER(email) = LOWER(?)", [email]);
-  if (!user || !verifyPassword(password, user.password)) {
-    await createActivityLog("system", "system", "Failed staff login", String(email || "unknown"), "system");
-    return res.status(401).json({ error: "Invalid credentials" });
-  }
-  const now = new Date().toISOString();
-  const isFirstLogin = !user.firstLoginAt;
-  const needsPasswordUpgrade = !String(user.password).startsWith("scrypt$");
-  if (needsPasswordUpgrade) {
-    await run(db, "UPDATE users SET password = ?, firstLoginAt = COALESCE(firstLoginAt, ?), lastLoginAt = ? WHERE id = ?", [hashPassword(String(password)), now, now, user.id]);
-  } else {
-    await run(db, "UPDATE users SET firstLoginAt = COALESCE(firstLoginAt, ?), lastLoginAt = ? WHERE id = ?", [now, now, user.id]);
-  }
-  if (isFirstLogin) {
-    await createNotificationRecord(user.id, "schedule", "Welcome to PIAT", "Welcome! Your account is ready to use. Please sign in with your temporary password and update it when prompted.", user.id);
-  }
-  await createActivityLog(user.id, `${user.firstName} ${user.lastName}`.trim(), "Successful staff login", "User signed in", user.role);
-  const updatedUser = await get(db, "SELECT id, userId, username, firstName, middleName, lastName, email, studentId, role, status, program, yearLevel, semester, academicYear, createdAt, temporaryPassword, firstLoginAt, lastLoginAt FROM users WHERE id = ?", [user.id]);
-  const token = generateJwtToken(updatedUser);
-  res.json({ ...sanitizeUserRecord(updatedUser), token });
-});
+app.post(
+  "/api/users/login",
+  applyRateLimit,
+  (req, res, next) => validateRequiredFields(req, res, next, ["email", "password"]),
+  async (req, res) => {
+    const { email, password } = req.body;
+    const user = await get(
+      db,
+      "SELECT id, userId, username, firstName, middleName, lastName, email, studentId, role, status, program, yearLevel, createdAt, temporaryPassword, password, firstLoginAt, lastLoginAt FROM users WHERE LOWER(email) = LOWER(?)",
+      [email],
+    );
+    if (!user || !verifyPassword(password, user.password)) {
+      await createActivityLog(
+        "system",
+        "system",
+        "Failed staff login",
+        String(email || "unknown"),
+        "system",
+      );
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+    const now = new Date().toISOString();
+    const isFirstLogin = !user.firstLoginAt;
+    const needsPasswordUpgrade = !String(user.password).startsWith("scrypt$");
+    if (needsPasswordUpgrade) {
+      await run(
+        db,
+        "UPDATE users SET password = ?, firstLoginAt = COALESCE(firstLoginAt, ?), lastLoginAt = ? WHERE id = ?",
+        [hashPassword(String(password)), now, now, user.id],
+      );
+    } else {
+      await run(
+        db,
+        "UPDATE users SET firstLoginAt = COALESCE(firstLoginAt, ?), lastLoginAt = ? WHERE id = ?",
+        [now, now, user.id],
+      );
+    }
+    if (isFirstLogin) {
+      await createNotificationRecord(
+        user.id,
+        "schedule",
+        "Welcome to PIAT",
+        "Welcome! Your account is ready to use. Please sign in with your temporary password and update it when prompted.",
+        user.id,
+      );
+    }
+    await createActivityLog(
+      user.id,
+      `${user.firstName} ${user.lastName}`.trim(),
+      "Successful staff login",
+      "User signed in",
+      user.role,
+    );
+    const updatedUser = await get(
+      db,
+      "SELECT id, userId, username, firstName, middleName, lastName, email, studentId, role, status, program, yearLevel, semester, academicYear, createdAt, temporaryPassword, firstLoginAt, lastLoginAt FROM users WHERE id = ?",
+      [user.id],
+    );
+    const token = generateJwtToken(updatedUser);
+    res.json({ ...sanitizeUserRecord(updatedUser), token });
+  },
+);
 
-app.get("/api/users/profile", requireRole("admin", "faculty", "registrar", "student"), async (req, res) => {
-  const user = await get(db, "SELECT id, userId, username, firstName, middleName, lastName, email, studentId, role, status, program, yearLevel, semester, academicYear, createdAt, temporaryPassword, firstLoginAt, lastLoginAt FROM users WHERE id = ?", [req.userContext.userId]);
-  if (!user) return res.status(404).json({ error: "User not found" });
-  res.json(sanitizeUserRecord(user));
-});
+app.get(
+  "/api/users/profile",
+  requireRole("admin", "faculty", "registrar", "student"),
+  async (req, res) => {
+    const user = await get(
+      db,
+      "SELECT id, userId, username, firstName, middleName, lastName, email, studentId, role, status, program, yearLevel, semester, academicYear, createdAt, temporaryPassword, firstLoginAt, lastLoginAt FROM users WHERE id = ?",
+      [req.userContext.userId],
+    );
+    if (!user) return res.status(404).json({ error: "User not found" });
+    res.json(sanitizeUserRecord(user));
+  },
+);
 
 app.get("/api/faculty/subjects", requireRole("admin", "faculty"), async (req, res) => {
-  const rows = await all(db, "SELECT * FROM subjects WHERE facultyId = ? ORDER BY code", [req.userContext.userId]);
+  const rows = await all(db, "SELECT * FROM subjects WHERE facultyId = ? ORDER BY code", [
+    req.userContext.userId,
+  ]);
   res.json(rows);
 });
 
-app.get("/api/faculty/subjects/:subjectId/students", requireRole("admin", "faculty"), async (req, res) => {
-  const subject = await get(db, "SELECT * FROM subjects WHERE id = ?", [req.params.subjectId]);
-  if (!subject) return res.status(404).json({ error: "Subject not found" });
-  if (String(subject.facultyId) !== req.userContext.userId) {
-    return res.status(403).json({ error: "Forbidden" });
-  }
-  const rows = await all(
-    db,
-    `SELECT st.*
+app.get(
+  "/api/faculty/subjects/:subjectId/students",
+  requireRole("admin", "faculty"),
+  async (req, res) => {
+    const subject = await get(db, "SELECT * FROM subjects WHERE id = ?", [req.params.subjectId]);
+    if (!subject) return res.status(404).json({ error: "Subject not found" });
+    if (String(subject.facultyId) !== req.userContext.userId) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const rows = await all(
+      db,
+      `SELECT st.*
      FROM enrollments e
      JOIN students st ON st.studentId = e.studentId
      WHERE e.subjectId = ?
      ORDER BY st.lastName, st.firstName`,
-    [req.params.subjectId],
-  );
-  res.json(rows.map(sanitizeStudentRecord));
-});
+      [req.params.subjectId],
+    );
+    res.json(rows.map(sanitizeStudentRecord));
+  },
+);
 
 app.post("/api/attendance/bulk", requireRole("admin", "faculty"), async (req, res) => {
   const records = Array.isArray(req.body?.records) ? req.body.records : null;
   if (!records || records.length === 0) {
     return sendError(res, 400, "records must be a non-empty array");
   }
+
+  const uniqueSubjectIds = [...new Set(records.map((r) => r.subjectId).filter(Boolean))];
+  const uniqueStudentIds = [...new Set(records.map((r) => r.studentId).filter(Boolean))];
+  const subjects = await all(
+    db,
+    `SELECT id, facultyId FROM subjects WHERE id IN (${uniqueSubjectIds.map(() => "?").join(",")})`,
+    uniqueSubjectIds,
+  );
+  const subjectMap = new Map(subjects.map((s) => [s.id, s]));
+  const students = await all(
+    db,
+    `SELECT studentId, program, academicYear, semester, section FROM students WHERE studentId IN (${uniqueStudentIds.map(() => "?").join(",")})`,
+    uniqueStudentIds,
+  );
+  const studentMap = new Map(students.map((s) => [s.studentId, s]));
 
   const results = [];
   for (const record of records) {
@@ -1127,18 +1802,25 @@ app.post("/api/attendance/bulk", requireRole("admin", "faculty"), async (req, re
       continue;
     }
 
-    const subject = await get(db, "SELECT * FROM subjects WHERE id = ?", [subjectId]);
+    const subject = subjectMap.get(subjectId);
     if (!subject) {
       results.push({ localId, status: "failed", error: "Subject not found" });
       continue;
     }
-    if (req.userContext.role === "faculty" && String(subject.facultyId) !== req.userContext.userId) {
+    if (
+      req.userContext.role === "faculty" &&
+      String(subject.facultyId) !== req.userContext.userId
+    ) {
       results.push({ localId, status: "failed", error: "Forbidden" });
       continue;
     }
 
-    const student = await get(db, "SELECT * FROM students WHERE studentId = ?", [studentId]);
-    const existing = await get(db, "SELECT * FROM attendance WHERE studentId = ? AND subjectId = ? AND date = ?", [studentId, subjectId, date]);
+    const student = studentMap.get(studentId);
+    const existing = await get(
+      db,
+      "SELECT * FROM attendance WHERE studentId = ? AND subjectId = ? AND date = ?",
+      [studentId, subjectId, date],
+    );
     const payload = buildAttendanceRecordPayload({
       studentId,
       subjectId,
@@ -1155,8 +1837,24 @@ app.post("/api/attendance/bulk", requireRole("admin", "faculty"), async (req, re
       await run(
         db,
         `UPDATE attendance SET studentName = ?, subjectCode = ?, subjectTitle = ?, facultyId = ?, time = ?, academicYear = ?, semester = ?, program = ?, yearLevel = ?, section = ?, status = ?, updatedAt = ? WHERE id = ?`,
-        [payload.studentName, payload.subjectCode, payload.subjectTitle, payload.facultyId, payload.time, payload.academicYear, payload.semester, payload.program, payload.yearLevel, payload.section, payload.status, payload.updatedAt, existing.id],
+        [
+          payload.studentName,
+          payload.subjectCode,
+          payload.subjectTitle,
+          payload.facultyId,
+          payload.time,
+          payload.academicYear,
+          payload.semester,
+          payload.program,
+          payload.yearLevel,
+          payload.section,
+          payload.status,
+          payload.updatedAt,
+          existing.id,
+        ],
       );
+      const updated = await get(db, "SELECT * FROM attendance WHERE id = ?", [existing.id]);
+      attendanceEventBus.emit("attendance-changed", { type: "updated", record: updated });
       results.push({ localId, id: existing.id, status: "updated" });
       continue;
     }
@@ -1165,55 +1863,39 @@ app.post("/api/attendance/bulk", requireRole("admin", "faculty"), async (req, re
       db,
       `INSERT INTO attendance (id, studentId, studentName, subjectId, subjectCode, subjectTitle, facultyId, date, time, academicYear, semester, program, yearLevel, section, status, updatedAt)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [payload.id, payload.studentId, payload.studentName, payload.subjectId, payload.subjectCode, payload.subjectTitle, payload.facultyId, payload.date, payload.time, payload.academicYear, payload.semester, payload.program, payload.yearLevel, payload.section, payload.status, payload.updatedAt],
+      [
+        payload.id,
+        payload.studentId,
+        payload.studentName,
+        payload.subjectId,
+        payload.subjectCode,
+        payload.subjectTitle,
+        payload.facultyId,
+        payload.date,
+        payload.time,
+        payload.academicYear,
+        payload.semester,
+        payload.program,
+        payload.yearLevel,
+        payload.section,
+        payload.status,
+        payload.updatedAt,
+      ],
     );
+    const created = await get(db, "SELECT * FROM attendance WHERE id = ?", [payload.id]);
+    attendanceEventBus.emit("attendance-changed", { type: "created", record: created });
     results.push({ localId, id: payload.id, status: "created" });
   }
 
+  const bulkUpdated = results.filter((r) => r.status === "updated" || r.status === "created").length;
+  await createActivityLog(
+    req.userContext.userId,
+    req.userContext.role || "faculty",
+    "Bulk modified attendance",
+    `recordsAffected=${bulkUpdated}`,
+    req.userContext.role,
+  );
   res.json(results);
-});
-
-app.post("/api/attendance", requireRole("admin", "faculty"), async (req, res) => {
-  const { studentId, subjectId, date, status } = req.body;
-  if (!studentId || !subjectId || !date || !status) {
-    return res.status(400).json({ error: "studentId, subjectId, date, and status are required" });
-  }
-  const subject = await get(db, "SELECT * FROM subjects WHERE id = ?", [subjectId]);
-  if (!subject) {
-    return res.status(404).json({ error: "Subject not found" });
-  }
-  if (req.userContext.role === "faculty" && String(subject.facultyId) !== req.userContext.userId) {
-    return res.status(403).json({ error: "Forbidden" });
-  }
-  const existing = await get(
-    db,
-    "SELECT * FROM attendance WHERE studentId = ? AND subjectId = ? AND date = ?",
-    [studentId, subjectId, date],
-  );
-  if (existing) {
-    await run(
-      db,
-      "UPDATE attendance SET status = ?, updatedAt = ? WHERE id = ?",
-      [String(status), Date.now(), existing.id],
-    );
-    const updated = await get(db, "SELECT * FROM attendance WHERE id = ?", [existing.id]);
-    return res.json(updated);
-  }
-
-  const record = {
-    id: crypto.randomUUID(),
-    studentId: String(studentId),
-    subjectId: String(subjectId),
-    date: String(date),
-    status: String(status),
-    updatedAt: Date.now(),
-  };
-  await run(
-    db,
-    "INSERT INTO attendance (id, studentId, subjectId, date, status, updatedAt) VALUES (?, ?, ?, ?, ?, ?)",
-    [record.id, record.studentId, record.subjectId, record.date, record.status, record.updatedAt],
-  );
-  res.status(201).json(record);
 });
 
 // Notifications endpoints
@@ -1248,23 +1930,107 @@ app.get("/api/enrollments", requireRole("admin", "registrar", "student"), async 
     params,
   };
   const rows = await all(db, query.sql, query.params);
-  res.json(rows);
+  res.json(paginateResults(rows, req.query.page, req.query.limit));
 });
 
-app.post("/api/enrollments", requireRole("admin", "registrar"), (req, res, next) => validateRequiredFields(req, res, next, ["studentId"]), (req, res, next) => validateArrayField(req, res, next, "subjectIds"), async (req, res) => {
-  const { studentId } = req.body;
+app.post(
+  "/api/enrollments",
+  requireRole("admin", "registrar"),
+  (req, res, next) => validateRequiredFields(req, res, next, ["studentId"]),
+  (req, res, next) => validateArrayField(req, res, next, "subjectIds"),
+  async (req, res) => {
+    const { studentId, subjectIds, academicYear, semester } = req.body;
+    const student = await get(
+      db,
+      "SELECT studentId, academicYear, semester FROM students WHERE studentId = ?",
+      [studentId],
+    );
 
-  await createActivityLog(req.userContext?.userId || "system", req.userContext?.role || "system", "Enrollment request ignored", `${studentId} (student-only mode)`, req.userContext?.role || "system");
-  res.status(201).json([]);
-});
+    if (!student) {
+      return res.status(404).json({ error: "Student not found" });
+    }
+
+    const targetAcademicYear =
+      academicYear ||
+      student.academicYear ||
+      `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`;
+    const targetSemester = semester || student.semester || "1st Semester";
+    const normalizedSubjectIds = subjectIds.map((id) => String(id));
+
+    const existingEnrollments = await all(
+      db,
+      `SELECT subjectId FROM enrollments WHERE studentId = ? AND academicYear = ? AND semester = ? AND subjectId IN (${normalizedSubjectIds.map(() => "?").join(",")})`,
+      [studentId, targetAcademicYear, targetSemester, ...normalizedSubjectIds],
+    );
+    const existingSet = new Set(existingEnrollments.map((e) => e.subjectId));
+
+    const createdEnrollments = [];
+
+    for (const normalizedSubjectId of normalizedSubjectIds) {
+      if (existingSet.has(normalizedSubjectId)) continue;
+
+      const enrollment = {
+        id: crypto.randomUUID(),
+        studentId: String(studentId),
+        subjectId: normalizedSubjectId,
+        academicYear: targetAcademicYear,
+        semester: targetSemester,
+        enrolledAt: new Date().toISOString(),
+        status: "enrolled",
+      };
+
+      await run(
+        db,
+        `INSERT INTO enrollments (id, studentId, subjectId, academicYear, semester, enrolledAt, status) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          enrollment.id,
+          enrollment.studentId,
+          enrollment.subjectId,
+          enrollment.academicYear,
+          enrollment.semester,
+          enrollment.enrolledAt,
+          enrollment.status,
+        ],
+      );
+      createdEnrollments.push(enrollment);
+      enrollmentEventBus.emit("enrollments-changed", {
+        type: "created",
+        studentId: String(studentId),
+        subjectId: String(normalizedSubjectId),
+      });
+    }
+
+    await createActivityLog(
+      req.userContext?.userId || "system",
+      req.userContext?.role || "system",
+      "Created enrollments",
+      `${studentId} -> ${createdEnrollments.length} records`,
+      req.userContext?.role || "system",
+    );
+    res.status(201).json(createdEnrollments);
+  },
+);
 
 app.get("/api/programs", async (_req, res) => {
+  const cacheKey = "programs:active";
+  const cached = programCache.get(cacheKey);
+  if (cached) return res.json(cached);
+
   const rows = await all(db, "SELECT name FROM programs WHERE status = 'active' ORDER BY name");
-  res.json(rows.map((r) => r.name));
+  const result = rows.map((r) => r.name);
+  programCache.set(cacheKey, result, 300000);
+  res.json(result);
 });
 
 app.get("/api/meta/academic-structure", async (_req, res) => {
-  const academicYearRows = await all(db, "SELECT DISTINCT academicYear FROM subjects WHERE academicYear IS NOT NULL ORDER BY academicYear");
+  const cacheKey = "meta:academic-structure";
+  const cached = defaultCache.get(cacheKey);
+  if (cached) return res.json(cached);
+
+  const academicYearRows = await all(
+    db,
+    "SELECT DISTINCT academicYear FROM subjects WHERE academicYear IS NOT NULL ORDER BY academicYear",
+  );
   const yearLevelRows = await all(
     db,
     `SELECT DISTINCT yearLevel FROM curriculum ORDER BY
@@ -1297,24 +2063,46 @@ app.get("/api/meta/academic-structure", async (_req, res) => {
     ? semesterRows.map((row) => row.semester)
     : ["1st Semester", "2nd Semester"];
 
-  res.json({ academicYears, yearLevels, semesters });
+  const result = { academicYears, yearLevels, semesters };
+  defaultCache.set(cacheKey, result, 300000);
+  res.json(result);
 });
 
 app.get("/api/programs/detailed", async (_req, res) => {
-  const rows = await all(db, "SELECT id, name, description, status, createdAt FROM programs ORDER BY name");
+  const cacheKey = "programs:detailed";
+  const cached = programCache.get(cacheKey);
+  if (cached) return res.json(cached);
+
+  const rows = await all(
+    db,
+    "SELECT id, name, description, status, createdAt FROM programs ORDER BY name",
+  );
+  programCache.set(cacheKey, rows, 300000);
   res.json(rows);
 });
 
-app.get("/api/dashboard/registrar", async (_req, res) => {
-  const pendingApplications = await get(db, "SELECT COUNT(*) AS count FROM students WHERE status IN ('submitted', 'under_review', 'pending')");
-  const approvedStudents = await get(db, "SELECT COUNT(*) AS count FROM students WHERE status = 'approved'");
-  const pendingEnrollments = await get(db, "SELECT COUNT(*) AS count FROM enrollments WHERE status = 'enrolled'");
+app.get("/api/dashboard/registrar", requireRole("admin", "registrar"), async (req, res) => {
+  const pendingApplications = await get(
+    db,
+    "SELECT COUNT(*) AS count FROM students WHERE status IN ('submitted', 'under_review', 'pending')",
+  );
+  const approvedStudents = await get(
+    db,
+    "SELECT COUNT(*) AS count FROM students WHERE status = 'approved'",
+  );
+  const pendingEnrollments = await get(
+    db,
+    "SELECT COUNT(*) AS count FROM enrollments WHERE status = 'enrolled'",
+  );
   const totalSubjects = await get(db, "SELECT COUNT(*) AS count FROM subjects");
   const assignedFaculty = await get(
     db,
     "SELECT COUNT(DISTINCT facultyId) AS count FROM subjects WHERE facultyId IS NOT NULL AND facultyId != ''",
   );
-  const programsOffered = await get(db, "SELECT COUNT(*) AS count FROM programs WHERE status = 'active'");
+  const programsOffered = await get(
+    db,
+    "SELECT COUNT(*) AS count FROM programs WHERE status = 'active'",
+  );
   const eligibleStudents = await all(
     db,
     `SELECT 1
@@ -1346,9 +2134,10 @@ app.get("/api/dashboard/registrar", async (_req, res) => {
   });
 });
 
-app.post("/api/programs", async (req, res) => {
+app.post("/api/programs",
+  validateBody({ name: { required: true } }),
+  async (req, res) => {
   const { name, description } = req.body;
-  if (!name) return res.status(400).json({ error: "Program name is required" });
   const existing = await get(db, "SELECT id FROM programs WHERE name = ?", [name]);
   if (existing) return res.status(400).json({ error: "Program already exists" });
   const program = {
@@ -1358,7 +2147,18 @@ app.post("/api/programs", async (req, res) => {
     status: "active",
     createdAt: new Date().toISOString(),
   };
-  await run(db, "INSERT INTO programs (id, name, description, status, createdAt) VALUES (?, ?, ?, ?, ?)", [program.id, program.name, program.description, program.status, program.createdAt]);
+    await run(
+      db,
+      "INSERT INTO programs (id, name, description, status, createdAt) VALUES (?, ?, ?, ?, ?)",
+      [program.id, program.name, program.description, program.status, program.createdAt],
+    );
+  await createActivityLog(
+    req.userContext?.userId || "system",
+    req.userContext?.role || "system",
+    "Created program",
+    program.name,
+    req.userContext?.role || "system",
+  );
   res.status(201).json(program);
 });
 
@@ -1367,15 +2167,22 @@ app.put("/api/programs/:id", async (req, res) => {
   const existing = await get(db, "SELECT * FROM programs WHERE id = ?", [id]);
   if (!existing) return res.status(404).json({ error: "Program not found" });
   const name = req.body.name ? String(req.body.name).trim() : existing.name;
-  const description = req.body.description !== undefined ? String(req.body.description).trim() : existing.description;
-  await run(db, "UPDATE programs SET name = ?, description = ? WHERE id = ?", [name, description, id]);
+  const description =
+    req.body.description !== undefined ? String(req.body.description).trim() : existing.description;
+  await run(db, "UPDATE programs SET name = ?, description = ? WHERE id = ?", [
+    name,
+    description,
+    id,
+  ]);
   const updated = await get(db, "SELECT * FROM programs WHERE id = ?", [id]);
+  await createActivityLog(req.userContext?.userId || "system", req.userContext?.role || "system", "Updated program", existing.name + " -> " + name, req.userContext?.role || "system");
   res.json(updated);
 });
 
 app.delete("/api/programs/:id", async (req, res) => {
   const { id } = req.params;
   await run(db, "UPDATE programs SET status = 'archived' WHERE id = ?", [id]);
+  await createActivityLog(req.userContext?.userId || "system", req.userContext?.role || "system", "Archived program", "id=" + id, req.userContext?.role || "system");
   res.status(204).end();
 });
 
@@ -1399,22 +2206,42 @@ app.get("/api/curriculum", async (req, res) => {
   res.json(rows);
 });
 
-app.post("/api/curriculum", async (req, res) => {
+app.post("/api/curriculum",
+  validateBody({
+    programId: { required: true },
+    yearLevel: { required: true },
+    semester: { required: true },
+    subjectCode: { required: true },
+    subjectTitle: { required: true },
+    units: { required: true },
+  }),
+  async (req, res) => {
   const { programId, yearLevel, semester, subjectCode, subjectTitle, units } = req.body;
-  if (!programId || !yearLevel || !semester || !subjectCode || !subjectTitle || units === undefined) {
-    return res.status(400).json({ error: "Program ID, year level, semester, subject code, title, and units are required" });
-  }
-  const existing = await get(db, "SELECT id FROM curriculum WHERE programId = ? AND yearLevel = ? AND semester = ? AND subjectCode = ?", [programId, yearLevel, semester, subjectCode]);
+  const existing = await get(
+    db,
+    "SELECT id FROM curriculum WHERE programId = ? AND yearLevel = ? AND semester = ? AND subjectCode = ?",
+    [programId, yearLevel, semester, subjectCode],
+  );
   if (existing) return res.status(400).json({ error: "Subject already exists in this curriculum" });
   const id = crypto.randomUUID();
-  await run(db, "INSERT INTO curriculum (id, programId, yearLevel, semester, subjectCode, subjectTitle, units) VALUES (?, ?, ?, ?, ?, ?, ?)", [id, programId, yearLevel, semester, subjectCode, subjectTitle, Number(units)]);
-  const created = await get(db, "SELECT c.*, p.name as programName FROM curriculum c JOIN programs p ON p.id = c.programId WHERE c.id = ?", [id]);
+  await run(
+    db,
+    "INSERT INTO curriculum (id, programId, yearLevel, semester, subjectCode, subjectTitle, units) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    [id, programId, yearLevel, semester, subjectCode, subjectTitle, Number(units)],
+  );
+  const created = await get(
+    db,
+    "SELECT c.*, p.name as programName FROM curriculum c JOIN programs p ON p.id = c.programId WHERE c.id = ?",
+    [id],
+  );
+  await createActivityLog(req.userContext?.userId || "system", req.userContext?.role || "system", "Created curriculum entry", programId + " / " + subjectCode, req.userContext?.role || "system");
   res.status(201).json(created);
 });
 
 app.delete("/api/curriculum/:id", async (req, res) => {
   const { id } = req.params;
   await run(db, "DELETE FROM curriculum WHERE id = ?", [id]);
+  await createActivityLog(req.userContext?.userId || "system", req.userContext?.role || "system", "Deleted curriculum entry", "id=" + id, req.userContext?.role || "system");
   res.status(204).end();
 });
 
@@ -1424,9 +2251,8 @@ app.get("/api/students/eligible-for-reenrollment", async (_req, res) => {
     `SELECT s.studentId, s.firstName, s.lastName, s.program, s.yearLevel, s.semester
      FROM students s
      WHERE s.status = 'approved'
-     AND EXISTS (SELECT 1 FROM enrollments e WHERE e.studentId = s.studentId AND e.status = 'enrolled')
-     AND EXISTS (SELECT 1 FROM grades g WHERE g.studentId = s.studentId AND g.status = 'finalized')
-     AND NOT EXISTS (SELECT 1 FROM grades g WHERE g.studentId = s.studentId AND g.status = 'draft')`,
+       AND EXISTS (SELECT 1 FROM enrollments e WHERE e.studentId = s.studentId AND e.status = 'enrolled')
+       AND NOT EXISTS (SELECT 1 FROM grades g WHERE g.studentId = s.studentId AND g.status = 'draft')`,
   );
   res.json(rows);
 });
@@ -1436,93 +2262,243 @@ app.post("/api/students/:studentId/reenroll", async (req, res) => {
   const existing = await get(db, "SELECT * FROM students WHERE studentId = ?", [studentId]);
   if (!existing) return res.status(404).json({ error: "Student not found" });
 
-  await createNotificationRecord(studentId, "schedule", "Re-enrollment Ignored", "Student-only mode is active, so no re-enrollment records were created.", studentId);
-  res.json({ student: existing, enrollmentsCreated: 0 });
+  const currentYear = new Date().getFullYear();
+  const inferredTarget = inferReenrollmentTarget(
+    {
+      ...existing,
+      academicYear:
+        req.body?.nextAcademicYear || existing.academicYear || `${currentYear}-${currentYear + 1}`,
+    },
+    currentYear,
+  );
+
+  const target = {
+    academicYear: req.body?.nextAcademicYear || inferredTarget.academicYear,
+    yearLevel: req.body?.nextYear || inferredTarget.yearLevel,
+    semester: req.body?.nextSemester || inferredTarget.semester,
+  };
+
+  try {
+    const updatedStudent = await withTransaction(db, async () => {
+      await run(
+        db,
+        "UPDATE students SET yearLevel = ?, semester = ?, academicYear = ? WHERE studentId = ?",
+        [target.yearLevel, target.semester, target.academicYear, studentId],
+      );
+      await run(
+        db,
+        "UPDATE users SET yearLevel = ?, semester = ?, academicYear = ? WHERE studentId = ?",
+        [target.yearLevel, target.semester, target.academicYear, studentId],
+      );
+
+      const refreshedStudent = await get(db, "SELECT * FROM students WHERE studentId = ?", [
+        studentId,
+      ]);
+      const createdEnrollments = await syncStudentEnrollment(
+        {
+          ...refreshedStudent,
+          yearLevel: target.yearLevel,
+          semester: target.semester,
+          academicYear: target.academicYear,
+        },
+        {
+          yearLevel: target.yearLevel,
+          semester: target.semester,
+          academicYear: target.academicYear,
+        },
+      );
+
+      await createNotificationRecord(
+        studentId,
+        "schedule",
+        "Re-enrollment Approved",
+        `Your academic record was advanced to ${target.yearLevel} - ${target.semester} for ${target.academicYear}.`,
+        studentId,
+      );
+
+      return {
+        student: refreshedStudent,
+        enrollmentsCreated: createdEnrollments.length,
+      };
+    });
+
+    res.json({
+      student: {
+        ...updatedStudent.student,
+        yearLevel: target.yearLevel,
+        semester: target.semester,
+        academicYear: target.academicYear,
+      },
+      enrollmentsCreated: updatedStudent.enrollmentsCreated,
+    });
+    await createActivityLog(
+      req.userContext?.userId || "system",
+      req.userContext?.role || "system",
+      "Re-enrolled student",
+      `${studentId} -> ${target.yearLevel} / ${target.semester} / ${target.academicYear}`,
+      req.userContext?.role || "system",
+    );
+  } catch (error) {
+  console.error("Re-enrollment failed", error);
+  res.status(500).json({ error: "Failed to process re-enrollment" });
+  }
 });
 
 app.post("/api/students/:studentId/finalize-records", async (req, res) => {
   const { studentId } = req.params;
-  const rows = await all(db, "SELECT id FROM grades WHERE studentId = ?", [studentId]);
+  const student = await get(db, "SELECT * FROM students WHERE studentId = ?", [studentId]);
+  if (!student) return res.status(404).json({ error: "Student not found" });
+
+  const filters = {
+    period: req.body?.period ? String(req.body.period) : undefined,
+    subjectId: req.body?.subjectId ? String(req.body.subjectId) : undefined,
+    academicYear: req.body?.academicYear ? String(req.body.academicYear) : undefined,
+    semester: req.body?.semester ? String(req.body.semester) : undefined,
+  };
+
+  const { sql, params } = buildGradeFinalizationQuery(student, filters);
+  const rows = await all(db, sql, params);
   for (const row of rows) {
     await run(db, "UPDATE grades SET status = 'finalized' WHERE id = ?", [row.id]);
   }
-  await createNotificationRecord(studentId, "grade", "Academic Records Finalized", "Your academic records have been finalized by the Registrar.", studentId);
-  res.json({ finalizedCount: rows.length });
+
+  await createNotificationRecord(
+    studentId,
+    "grade",
+    "Academic Records Finalized",
+    "Your academic records have been finalized by the Registrar.",
+    studentId,
+  );
+  const responsePayload = {
+    finalizedCount: rows.length,
+    filters: {
+      academicYear: filters.academicYear || student.academicYear || null,
+      semester: filters.semester || student.semester || null,
+      period: filters.period || null,
+      subjectId: filters.subjectId || null,
+    },
+  };
+  await createActivityLog(
+    req.userContext?.userId || "system",
+    req.userContext?.role || "system",
+    "Finalized academic records",
+    `studentId=${studentId}, finalizedCount=${rows.length}`,
+    req.userContext?.role || "system",
+  );
+  res.json(responsePayload);
 });
 
 app.get("/api/reports/enrollment", async (_req, res) => {
-  const enrollments = await all(db, "SELECT * FROM enrollments WHERE status = 'enrolled'");
-  const students = await all(db, "SELECT studentId, firstName, lastName, program, yearLevel FROM students WHERE status = 'approved'");
+  const rows = await all(
+    db,
+    `SELECT s.program, s.yearLevel, e.semester, COUNT(*) AS count
+     FROM enrollments e
+     JOIN students s ON s.studentId = e.studentId
+     WHERE e.status = 'enrolled' AND s.status = 'approved'
+     GROUP BY s.program, s.yearLevel, e.semester`,
+  );
   const report = {
-    totalEnrolled: enrollments.length,
+    totalEnrolled: rows.reduce((sum, r) => sum + r.count, 0),
     byProgram: {},
     byYear: {},
     bySemester: {},
   };
-  for (const e of enrollments) {
-    const student = students.find(s => s.studentId === e.studentId);
-    const prog = student?.program || "Unknown";
-    const year = student?.yearLevel || "Unknown";
-    report.byProgram[prog] = (report.byProgram[prog] || 0) + 1;
-    report.byYear[year] = (report.byYear[year] || 0) + 1;
-    report.bySemester[e.semester] = (report.bySemester[e.semester] || 0) + 1;
+  for (const r of rows) {
+    report.byProgram[r.program || "Unknown"] = (report.byProgram[r.program || "Unknown"] || 0) + r.count;
+    report.byYear[r.yearLevel || "Unknown"] = (report.byYear[r.yearLevel || "Unknown"] || 0) + r.count;
+    report.bySemester[r.semester || "Unknown"] = (report.bySemester[r.semester || "Unknown"] || 0) + r.count;
   }
   res.json(report);
 });
 
 app.get("/api/reports/faculty-load", async (_req, res) => {
-  const subjects = await all(db, "SELECT * FROM subjects");
-  const faculty = await all(db, "SELECT id, userId, firstName, lastName FROM users WHERE role = 'faculty'");
-  const report = faculty.map(f => {
-    const assigned = subjects.filter(s => s.facultyId === f.id);
-    return {
-      facultyId: f.userId,
-      name: `${f.firstName} ${f.lastName}`,
-      subjectCount: assigned.length,
-      totalUnits: assigned.reduce((sum, s) => sum + s.units, 0),
-    };
-  });
+  const rows = await all(
+    db,
+    `SELECT u.id, u.userId, u.firstName, u.lastName, COUNT(s.id) as subjectCount, SUM(s.units) as totalUnits
+     FROM users u
+     LEFT JOIN subjects s ON s.facultyId = u.id
+     WHERE u.role = 'faculty'
+     GROUP BY u.id, u.userId, u.firstName, u.lastName`,
+  );
+  const report = rows.map((f) => ({
+    facultyId: f.userId,
+    name: `${f.firstName} ${f.lastName}`,
+    subjectCount: f.subjectCount,
+    totalUnits: f.totalUnits || 0,
+  }));
   res.json(report);
 });
 
 app.get("/api/reports/students", async (_req, res) => {
-  const rows = await all(db, "SELECT studentId, firstName, lastName, program, yearLevel, semester FROM students WHERE status = 'approved' ORDER BY lastName, firstName");
-  res.json(rows);
+  const cacheKey = "reports:students";
+  const cached = defaultCache.get(cacheKey);
+  if (cached) return res.json(cached);
+
+  const rows = await all(
+    db,
+    "SELECT studentId, firstName, lastName, program, yearLevel, semester FROM students WHERE status = 'approved' ORDER BY lastName, firstName",
+  );
+  const result = paginateResults(rows, req.query.page, req.query.limit);
+  defaultCache.set(cacheKey, result, 60000);
+  res.json(result);
 });
 
 app.get("/api/reports/curriculum", async (_req, res) => {
-  const rows = await all(db, "SELECT p.name, c.yearLevel, c.semester, c.subjectCode, c.subjectTitle, c.units FROM curriculum c JOIN programs p ON p.id = c.programId ORDER BY p.name, c.yearLevel, c.semester, c.subjectCode");
+  const cacheKey = "reports:curriculum";
+  const cached = defaultCache.get(cacheKey);
+  if (cached) return res.json(cached);
+
+  const rows = await all(
+    db,
+    "SELECT p.name, c.yearLevel, c.semester, c.subjectCode, c.subjectTitle, c.units FROM curriculum c JOIN programs p ON p.id = c.programId ORDER BY p.name, c.yearLevel, c.semester, c.subjectCode",
+  );
+  defaultCache.set(cacheKey, rows, 300000);
   res.json(rows);
 });
 
 app.get("/api/announcements", async (_req, res) => {
   const rows = await all(db, "SELECT * FROM announcements ORDER BY createdAt DESC");
-  res.json(rows);
+  res.json(paginateResults(rows, req.query.page, req.query.limit));
 });
 
-app.post("/api/announcements", (req, res, next) => validateRequiredFields(req, res, next, ["title", "body"]), async (req, res) => {
-  const { title, body, category, audience, subjectId, authorName, authorRole } = req.body;
-  const id = `a-${Date.now()}`;
-  const announcement = {
-    id,
-    title,
-    body,
-    category: category || "general",
-    audience: audience || "all",
-    subjectId: subjectId || null,
-    pinned: false,
-    authorName: authorName || "Admin",
-    authorRole: authorRole || "admin",
-    createdAt: Date.now(),
-    datePosted: new Date().toISOString().split("T")[0],
-  };
-  await run(
-    db,
-    "INSERT INTO announcements (id, title, body, category, audience, subjectId, pinned, authorName, authorRole, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    [announcement.id, announcement.title, announcement.body, announcement.category, announcement.audience, announcement.subjectId, announcement.pinned ? 1 : 0, announcement.authorName, announcement.authorRole, announcement.createdAt]
-  );
-  res.status(201).json(announcement);
-});
+app.post(
+  "/api/announcements",
+  (req, res, next) => validateRequiredFields(req, res, next, ["title", "body"]),
+  async (req, res) => {
+    const { title, body, category, audience, subjectId, authorName, authorRole } = req.body;
+    const id = `a-${Date.now()}`;
+    const announcement = {
+      id,
+      title,
+      body,
+      category: category || "general",
+      audience: audience || "all",
+      subjectId: subjectId || null,
+      pinned: false,
+      authorName: authorName || "Admin",
+      authorRole: authorRole || "admin",
+      createdAt: Date.now(),
+      datePosted: new Date().toISOString().split("T")[0],
+    };
+    await run(
+      db,
+      "INSERT INTO announcements (id, title, body, category, audience, subjectId, pinned, authorName, authorRole, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [
+        announcement.id,
+        announcement.title,
+        announcement.body,
+        announcement.category,
+        announcement.audience,
+        announcement.subjectId,
+        announcement.pinned ? 1 : 0,
+        announcement.authorName,
+        announcement.authorRole,
+        announcement.createdAt,
+      ],
+    );
+    res.status(201).json(announcement);
+  },
+);
 
 app.delete("/api/announcements", async (req, res) => {
   const id = req.query.id ? String(req.query.id) : null;
@@ -1539,6 +2515,41 @@ app.patch("/api/announcements/:id/pin", async (req, res) => {
   await run(db, "UPDATE announcements SET pinned = ? WHERE id = ?", [pinned, id]);
   const updated = await get(db, "SELECT * FROM announcements WHERE id = ?", [id]);
   res.json(updated);
+});
+
+app.get("/api/settings", requireRole("admin"), async (req, res) => {
+  const cacheKey = "settings:all";
+  const cached = defaultCache.get(cacheKey);
+  if (cached) return res.json(cached);
+
+  const rows = await all(db, "SELECT key, value, type FROM settings");
+  const result = {};
+  for (const row of rows) {
+    result[row.key] = row.type === "boolean" ? String(row.value) === "true" : row.value;
+  }
+  defaultCache.set(cacheKey, result, 300000);
+  res.json(result);
+});
+
+app.put("/api/settings", requireRole("admin"), async (req, res) => {
+  const settings = req.body;
+  if (!settings || typeof settings !== "object") {
+    return res.status(400).json({ error: "Settings object is required" });
+  }
+
+  const now = new Date().toISOString();
+  for (const [key, value] of Object.entries(settings)) {
+    const type = typeof value === "boolean" ? "boolean" : "string";
+    const stringValue = typeof value === "boolean" ? String(value) : String(value);
+    await run(
+      db,
+      `INSERT INTO settings (id, key, value, type, updatedAt) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, type = excluded.type, updatedAt = excluded.updatedAt`,
+      [crypto.randomUUID(), key, stringValue, type, now],
+    );
+  }
+
+  res.json({ success: true });
 });
 
 app.use((err, req, res, next) => {

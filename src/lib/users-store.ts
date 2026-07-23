@@ -1,5 +1,10 @@
 import { useEffect, useState, useCallback } from "react";
-import { fetchUsers, fetchActivityLogs, createUser as apiCreateUser, type ActivityLogEntry } from "./api";
+import {
+  fetchUsers,
+  fetchActivityLogs,
+  createUser as apiCreateUser,
+  type ActivityLogEntry,
+} from "./api";
 
 export type UserRole = "admin" | "faculty" | "registrar" | "student";
 

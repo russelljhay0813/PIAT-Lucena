@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Calendar, Search, CheckCircle, XCircle, Clock } from "lucide-react";
 import { motion } from "framer-motion";
 import { useAuth } from "@/lib/auth-context";
-import { fetchAttendanceRecords } from "@/lib/api";
+import { fetchAttendanceRecords, fetchSubjects, type Subject } from "@/lib/api";
 
 export const Route = createFileRoute("/dashboard/student/attendance")({
   component: StudentAttendance,
@@ -12,30 +12,47 @@ export const Route = createFileRoute("/dashboard/student/attendance")({
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: typeof CheckCircle }> = {
   present: { label: "Present", color: "text-success bg-success/10", icon: CheckCircle },
   absent: { label: "Absent", color: "text-destructive bg-destructive/10", icon: XCircle },
-  late: { label: "Late", color: "text-yellow-600 bg-yellow-50", icon: Clock },
-  excused: { label: "Excused", color: "text-blue-600 bg-blue-50", icon: Clock },
+  late: { label: "Late", color: "text-yellow-600 text-yellow-50", icon: Clock },
+  excused: { label: "Excused", color: "text-blue-600 text-blue-50", icon: Clock },
 };
 
 function StudentAttendance() {
   const { user } = useAuth();
   const [records, setRecords] = useState<any[]>([]);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const load = async () => {
-      if (!user?.studentId) return;
-      try {
-        const data = await fetchAttendanceRecords(undefined, undefined, user.studentId);
-        setRecords(data.sort((a, b) => b.date.localeCompare(a.date)));
-      } catch {
-        setRecords([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
+  const load = useCallback(async () => {
+    if (!user?.studentId) return;
+    try {
+      const [data, allSubjects] = await Promise.all([
+        fetchAttendanceRecords(undefined, undefined, user.studentId),
+        fetchSubjects(),
+      ]);
+      setRecords(data.sort((a: any, b: any) => b.date.localeCompare(a.date)));
+      setSubjects(allSubjects);
+    } catch {
+      setRecords([]);
+      setSubjects([]);
+    } finally {
+      setLoading(false);
+    }
   }, [user?.studentId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  useEffect(() => {
+    const onChange = () => {
+      void load();
+    };
+    window.addEventListener("bwest:attendance-changed", onChange);
+    return () => {
+      window.removeEventListener("bwest:attendance-changed", onChange);
+    };
+  }, [load]);
 
   const filtered = records.filter((r) => {
     const q = search.toLowerCase();
@@ -90,7 +107,9 @@ function StudentAttendance() {
         {loading ? (
           <div className="p-8 text-center text-sm text-muted-foreground">Loading attendance...</div>
         ) : filtered.length === 0 ? (
-          <div className="p-8 text-center text-sm text-muted-foreground">No attendance records found</div>
+          <div className="p-8 text-center text-sm text-muted-foreground">
+            No attendance records found
+          </div>
         ) : (
           <table className="w-full text-sm">
             <thead>
@@ -102,8 +121,13 @@ function StudentAttendance() {
             </thead>
             <tbody>
               {filtered.map((r, i) => {
-                const config = STATUS_CONFIG[r.status] || { label: r.status, color: "text-muted-foreground bg-muted", icon: Clock };
+                const config = STATUS_CONFIG[r.status] || {
+                  label: r.status,
+                  color: "text-muted-foreground bg-muted",
+                  icon: Clock,
+                };
                 const Icon = config.icon;
+                const subject = subjects.find((s) => s.id === r.subjectId);
                 return (
                   <motion.tr
                     key={`${r.id}-${r.date}`}
@@ -113,9 +137,13 @@ function StudentAttendance() {
                     className="border-b last:border-0 hover:bg-muted/30"
                   >
                     <td className="px-4 py-3 text-foreground">{r.date}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{r.subjectId || "—"}</td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {subject ? `${subject.code} — ${subject.title}` : r.subjectId || "—"}
+                    </td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${config.color}`}>
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${config.color}`}
+                      >
                         <Icon className="h-3 w-3" />
                         {config.label}
                       </span>

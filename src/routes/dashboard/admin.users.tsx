@@ -2,7 +2,14 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { Users, Search, UserCheck, UserX, Shield, Plus, Copy, RefreshCw } from "lucide-react";
 import { motion } from "framer-motion";
-import { useUsers, createUser, type UserAccount, UserRole, updateUser, toggleUserStatus } from "@/lib/users-store";
+import {
+  useUsers,
+  createUser,
+  type UserAccount,
+  UserRole,
+  updateUser,
+  toggleUserStatus,
+} from "@/lib/users-store";
 import { fetchPrograms } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -37,6 +44,8 @@ function AdminUsers() {
     middleName: "",
     lastName: "",
     email: "",
+    semester: "1st Semester",
+    academicYear: `${currentYear}-${currentYear + 1}`,
   });
 
   useEffect(() => {
@@ -90,7 +99,17 @@ function AdminUsers() {
       setShowStudentModal(false);
       setShowCredentialsModal(true);
       toast.success(`Student account created for ${created.firstName} ${created.lastName}`);
-      setCreateStudentForm({ studentId: "", firstName: "", middleName: "", lastName: "", suffix: "", gender: "", email: "", program: "", academicYear: `${currentYear}-${currentYear + 1}` });
+      setCreateStudentForm({
+        studentId: "",
+        firstName: "",
+        middleName: "",
+        lastName: "",
+        suffix: "",
+        gender: "",
+        email: "",
+        program: "",
+        academicYear: `${currentYear}-${currentYear + 1}`,
+      });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to create student account");
     }
@@ -110,12 +129,22 @@ function AdminUsers() {
         middleName: createStaffForm.middleName || undefined,
         lastName: createStaffForm.lastName,
         email: createStaffForm.email || undefined,
+        semester: createStaffForm.semester || undefined,
+        academicYear: createStaffForm.academicYear || undefined,
       });
       setCreatedAccount(created);
       setShowStaffModal(false);
       setShowCredentialsModal(true);
       toast.success(`${created.role} account created for ${created.firstName} ${created.lastName}`);
-      setCreateStaffForm({ role: "faculty", firstName: "", middleName: "", lastName: "", email: "" });
+      setCreateStaffForm({
+        role: "faculty",
+        firstName: "",
+        middleName: "",
+        lastName: "",
+        email: "",
+        semester: "1st Semester",
+        academicYear: `${currentYear}-${currentYear + 1}`,
+      });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to create staff account");
     }
@@ -268,7 +297,8 @@ function AdminUsers() {
               >
                 <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{u.userId}</td>
                 <td className="px-4 py-3 font-medium text-foreground">
-                  {u.firstName} {u.middleName ? u.middleName + " " : ""}{u.lastName}
+                  {u.firstName} {u.middleName ? u.middleName + " " : ""}
+                  {u.lastName}
                 </td>
                 <td className="px-4 py-3 text-muted-foreground">{u.email}</td>
                 <td className="px-4 py-3 font-mono text-xs text-foreground">{u.username}</td>
@@ -322,15 +352,24 @@ function AdminUsers() {
             animate={{ opacity: 1, scale: 1 }}
             className="w-full max-w-md rounded-xl bg-card p-6 shadow-lg"
           >
-            <h2 className="font-heading text-lg font-bold text-foreground mb-4">Create New Student</h2>
-            <p className="mb-4 text-sm text-muted-foreground">New student accounts are automatically assigned to First Year, First Semester and marked as Incoming Freshman.</p>
+            <h2 className="font-heading text-lg font-bold text-foreground mb-4">
+              Create New Student
+            </h2>
+            <p className="mb-4 text-sm text-muted-foreground">
+              New student accounts are automatically assigned to First Year, First Semester and
+              marked as Incoming Freshman.
+            </p>
             <form onSubmit={handleCreateStudent} className="space-y-4">
               <div>
-                <label className="text-xs font-medium text-muted-foreground">Student ID (optional)</label>
+                <label className="text-xs font-medium text-muted-foreground">
+                  Student ID (optional)
+                </label>
                 <input
                   title="Student ID"
                   value={createStudentForm.studentId}
-                  onChange={(e) => setCreateStudentForm({ ...createStudentForm, studentId: e.target.value })}
+                  onChange={(e) =>
+                    setCreateStudentForm({ ...createStudentForm, studentId: e.target.value })
+                  }
                   placeholder="Leave blank for auto-generation"
                   className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
                 />
@@ -340,7 +379,9 @@ function AdminUsers() {
                 <input
                   title="First Name"
                   value={createStudentForm.firstName}
-                  onChange={(e) => setCreateStudentForm({ ...createStudentForm, firstName: e.target.value })}
+                  onChange={(e) =>
+                    setCreateStudentForm({ ...createStudentForm, firstName: e.target.value })
+                  }
                   required
                   className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
                 />
@@ -350,7 +391,9 @@ function AdminUsers() {
                 <input
                   title="Middle Name"
                   value={createStudentForm.middleName}
-                  onChange={(e) => setCreateStudentForm({ ...createStudentForm, middleName: e.target.value })}
+                  onChange={(e) =>
+                    setCreateStudentForm({ ...createStudentForm, middleName: e.target.value })
+                  }
                   className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
                 />
               </div>
@@ -359,7 +402,9 @@ function AdminUsers() {
                 <input
                   title="Last Name"
                   value={createStudentForm.lastName}
-                  onChange={(e) => setCreateStudentForm({ ...createStudentForm, lastName: e.target.value })}
+                  onChange={(e) =>
+                    setCreateStudentForm({ ...createStudentForm, lastName: e.target.value })
+                  }
                   required
                   className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
                 />
@@ -369,7 +414,9 @@ function AdminUsers() {
                 <input
                   title="Suffix"
                   value={createStudentForm.suffix}
-                  onChange={(e) => setCreateStudentForm({ ...createStudentForm, suffix: e.target.value })}
+                  onChange={(e) =>
+                    setCreateStudentForm({ ...createStudentForm, suffix: e.target.value })
+                  }
                   placeholder="Jr., III, etc."
                   className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
                 />
@@ -379,7 +426,9 @@ function AdminUsers() {
                 <select
                   title="Gender"
                   value={createStudentForm.gender}
-                  onChange={(e) => setCreateStudentForm({ ...createStudentForm, gender: e.target.value })}
+                  onChange={(e) =>
+                    setCreateStudentForm({ ...createStudentForm, gender: e.target.value })
+                  }
                   className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
                 >
                   <option value="">Select gender...</option>
@@ -389,12 +438,16 @@ function AdminUsers() {
                 </select>
               </div>
               <div>
-                <label className="text-xs font-medium text-muted-foreground">Email (optional)</label>
+                <label className="text-xs font-medium text-muted-foreground">
+                  Email (optional)
+                </label>
                 <input
                   title="Email Address"
                   type="email"
                   value={createStudentForm.email}
-                  onChange={(e) => setCreateStudentForm({ ...createStudentForm, email: e.target.value })}
+                  onChange={(e) =>
+                    setCreateStudentForm({ ...createStudentForm, email: e.target.value })
+                  }
                   placeholder="Auto-generated if empty"
                   className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
                 />
@@ -404,7 +457,9 @@ function AdminUsers() {
                 <select
                   title="Program"
                   value={createStudentForm.program}
-                  onChange={(e) => setCreateStudentForm({ ...createStudentForm, program: e.target.value })}
+                  onChange={(e) =>
+                    setCreateStudentForm({ ...createStudentForm, program: e.target.value })
+                  }
                   required
                   className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
                 >
@@ -421,7 +476,9 @@ function AdminUsers() {
                 <input
                   title="Academic Year"
                   value={createStudentForm.academicYear}
-                  onChange={(e) => setCreateStudentForm({ ...createStudentForm, academicYear: e.target.value })}
+                  onChange={(e) =>
+                    setCreateStudentForm({ ...createStudentForm, academicYear: e.target.value })
+                  }
                   placeholder={`${currentYear}-${currentYear + 1}`}
                   className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
                 />
@@ -447,18 +504,22 @@ function AdminUsers() {
       )}
 
       {showCredentialsModal && createdAccount && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             className="w-full max-w-md rounded-xl bg-card p-6 shadow-lg"
           >
             <h2 className="font-heading text-lg font-bold text-foreground">Account Created</h2>
-            <p className="mt-2 text-sm text-muted-foreground">Share the credentials below with the new user.</p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Share the credentials below with the new user.
+            </p>
             <div className="mt-4 space-y-3 rounded-lg border bg-muted/40 p-4 text-sm">
               <div>
                 <p className="text-xs uppercase text-muted-foreground">Name</p>
-                <p className="font-medium text-foreground">{createdAccount.firstName} {createdAccount.lastName}</p>
+                <p className="font-medium text-foreground">
+                  {createdAccount.firstName} {createdAccount.lastName}
+                </p>
               </div>
               <div>
                 <p className="text-xs uppercase text-muted-foreground">Role</p>
@@ -470,13 +531,17 @@ function AdminUsers() {
               </div>
               <div>
                 <p className="text-xs uppercase text-muted-foreground">Temporary Password</p>
-                <p className="font-mono text-foreground">{createdAccount.temporaryPassword || "Not provided"}</p>
+                <p className="font-mono text-foreground">
+                  {createdAccount.temporaryPassword || "Not provided"}
+                </p>
               </div>
             </div>
             <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => copyCredentials(createdAccount.username, createdAccount.temporaryPassword)}
+                onClick={() =>
+                  copyCredentials(createdAccount.username, createdAccount.temporaryPassword)
+                }
                 className="rounded-lg border px-4 py-2 text-sm text-foreground hover:bg-muted"
               >
                 Copy Credentials
@@ -500,14 +565,18 @@ function AdminUsers() {
             animate={{ opacity: 1, scale: 1 }}
             className="w-full max-w-md rounded-xl bg-card p-6 shadow-lg"
           >
-            <h2 className="font-heading text-lg font-bold text-foreground mb-4">Create New Staff</h2>
+            <h2 className="font-heading text-lg font-bold text-foreground mb-4">
+              Create New Staff
+            </h2>
             <form onSubmit={handleCreateStaff} className="space-y-4">
               <div>
                 <label className="text-xs font-medium text-muted-foreground">Role</label>
                 <select
                   title="Role"
                   value={createStaffForm.role}
-                  onChange={(e) => setCreateStaffForm({ ...createStaffForm, role: e.target.value as UserRole })}
+                  onChange={(e) =>
+                    setCreateStaffForm({ ...createStaffForm, role: e.target.value as UserRole })
+                  }
                   className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
                 >
                   <option value="admin">Administrator</option>
@@ -520,7 +589,9 @@ function AdminUsers() {
                 <input
                   title="Staff First Name"
                   value={createStaffForm.firstName}
-                  onChange={(e) => setCreateStaffForm({ ...createStaffForm, firstName: e.target.value })}
+                  onChange={(e) =>
+                    setCreateStaffForm({ ...createStaffForm, firstName: e.target.value })
+                  }
                   required
                   className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
                 />
@@ -530,7 +601,9 @@ function AdminUsers() {
                 <input
                   title="Staff Middle Name"
                   value={createStaffForm.middleName}
-                  onChange={(e) => setCreateStaffForm({ ...createStaffForm, middleName: e.target.value })}
+                  onChange={(e) =>
+                    setCreateStaffForm({ ...createStaffForm, middleName: e.target.value })
+                  }
                   className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
                 />
               </div>
@@ -539,19 +612,52 @@ function AdminUsers() {
                 <input
                   title="Staff Last Name"
                   value={createStaffForm.lastName}
-                  onChange={(e) => setCreateStaffForm({ ...createStaffForm, lastName: e.target.value })}
+                  onChange={(e) =>
+                    setCreateStaffForm({ ...createStaffForm, lastName: e.target.value })
+                  }
                   required
                   className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-muted-foreground">Email (optional)</label>
+                <label className="text-xs font-medium text-muted-foreground">
+                  Email (optional)
+                </label>
                 <input
                   title="Staff Email"
                   type="email"
                   value={createStaffForm.email}
-                  onChange={(e) => setCreateStaffForm({ ...createStaffForm, email: e.target.value })}
+                  onChange={(e) =>
+                    setCreateStaffForm({ ...createStaffForm, email: e.target.value })
+                  }
                   placeholder="Auto-generated if empty"
+                  className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Semester</label>
+                <select
+                  title="Staff Semester"
+                  value={createStaffForm.semester}
+                  onChange={(e) =>
+                    setCreateStaffForm({ ...createStaffForm, semester: e.target.value })
+                  }
+                  className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
+                >
+                  <option value="1st Semester">1st Semester</option>
+                  <option value="2nd Semester">2nd Semester</option>
+                  <option value="Summer">Summer</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Academic Year</label>
+                <input
+                  title="Staff Academic Year"
+                  value={createStaffForm.academicYear}
+                  onChange={(e) =>
+                    setCreateStaffForm({ ...createStaffForm, academicYear: e.target.value })
+                  }
+                  placeholder={`${currentYear}-${currentYear + 1}`}
                   className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
                 />
               </div>

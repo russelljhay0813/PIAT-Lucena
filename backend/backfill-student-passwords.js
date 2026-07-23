@@ -40,7 +40,10 @@ async function main() {
   });
 
   try {
-    const rows = await getRows(db, "SELECT id, studentId, email FROM students WHERE password IS NULL OR TRIM(password) = ''");
+    const rows = await getRows(
+      db,
+      "SELECT id, studentId, email FROM students WHERE password IS NULL OR TRIM(password) = ''",
+    );
     if (rows.length === 0) {
       console.log("No student records need password backfill.");
       return;
@@ -54,7 +57,9 @@ async function main() {
       console.log(`Backfilled ${row.studentId || row.email || row.id}`);
     }
 
-    console.log(`Backfilled ${updated} student account(s) with the default password: ${fallbackPassword}`);
+    console.log(
+      `Backfilled ${updated} student account(s) with the default password: ${fallbackPassword}`,
+    );
   } finally {
     db.close();
   }

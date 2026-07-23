@@ -63,7 +63,10 @@ export async function issueClearance(
     broadcastUpdate();
     return { ok: true, record };
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : "Unable to issue clearance" };
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Unable to issue clearance",
+    };
   }
 }
 

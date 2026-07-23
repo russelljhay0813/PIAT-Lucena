@@ -14,7 +14,11 @@ export async function notifyGradePosted(studentId: string, subjectTitle: string)
   );
 }
 
-export async function notifyScheduleChange(studentId: string, subjectTitle: string, changeDetails: string): Promise<void> {
+export async function notifyScheduleChange(
+  studentId: string,
+  subjectTitle: string,
+  changeDetails: string,
+): Promise<void> {
   await createNotification(
     studentId,
     "schedule",

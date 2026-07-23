@@ -13,54 +13,309 @@ export const PIAT_PROGRAMS = [
 const YEAR_LEVELS = ["1st Year", "2nd Year", "3rd Year", "4th Year"];
 const SECTIONS = ["Section A", "Section B", "Section C"];
 const ACTIVE_SEMESTERS = ["1st Semester", "2nd Semester"];
-const YEAR_LEVEL_INDEX = Object.fromEntries(YEAR_LEVELS.map((yearLevel, index) => [yearLevel, index + 1]));
+const YEAR_LEVEL_INDEX = Object.fromEntries(
+  YEAR_LEVELS.map((yearLevel, index) => [yearLevel, index + 1]),
+);
 
 const FIRST_NAMES = [
-  "Aaliyah", "Abigail", "Adrian", "Aira", "Aldrin", "Alyssa", "Andrea", "Angel", "Angelo", "Aria",
-  "Arvin", "Ashley", "Athena", "Bea", "Benedict", "Bianca", "Blanche", "Camille", "Celine", "Christian",
-  "Claire", "Clint", "Cris", "Daniel", "Daniella", "Daphne", "Dave", "Denzel", "Dianne", "Dexter",
-  "Diana", "Edgar", "Elijah", "Ella", "Emil", "Erica", "Ethan", "Eunice", "Faith", "Frances",
-  "Gabriel", "Genesis", "George", "Gian", "Gina", "Gloria", "Harold", "Hazel", "Ian", "Ingrid",
-  "Isabel", "Janelle", "Jayson", "Jessa", "Jhon", "Jillian", "Joan", "Jocelyn", "John", "Joshua",
-  "Joy", "Julia", "Julian", "Justine", "Karl", "Katrina", "Kean", "Ken", "Kris", "Kristine",
-  "Lance", "Lara", "Lianne", "Lloyd", "Lois", "Louise", "Maica", "Marian", "Marielle", "Marlon",
-  "Mary", "Michaela", "Miguel", "Nadine", "Nico", "Noel", "Noreen", "Oscar", "Patricia", "Paulo",
-  "Precious", "Rafael", "Randy", "Rhea", "Rhen", "Rica", "Rina", "Rizalyn", "Rochelle", "Rolly",
-  "Rose", "Ruben", "Ruel", "Ryan", "Samantha", "Sarah", "Sean", "Shaira", "Sheila", "Shiela",
-  "Sofia", "Stella", "Tyrone", "Vanessa", "Vince", "Warren", "Yvette", "Yza", "Zara", "Zion",
+  "Aaliyah",
+  "Abigail",
+  "Adrian",
+  "Aira",
+  "Aldrin",
+  "Alyssa",
+  "Andrea",
+  "Angel",
+  "Angelo",
+  "Aria",
+  "Arvin",
+  "Ashley",
+  "Athena",
+  "Bea",
+  "Benedict",
+  "Bianca",
+  "Blanche",
+  "Camille",
+  "Celine",
+  "Christian",
+  "Claire",
+  "Clint",
+  "Cris",
+  "Daniel",
+  "Daniella",
+  "Daphne",
+  "Dave",
+  "Denzel",
+  "Dianne",
+  "Dexter",
+  "Diana",
+  "Edgar",
+  "Elijah",
+  "Ella",
+  "Emil",
+  "Erica",
+  "Ethan",
+  "Eunice",
+  "Faith",
+  "Frances",
+  "Gabriel",
+  "Genesis",
+  "George",
+  "Gian",
+  "Gina",
+  "Gloria",
+  "Harold",
+  "Hazel",
+  "Ian",
+  "Ingrid",
+  "Isabel",
+  "Janelle",
+  "Jayson",
+  "Jessa",
+  "Jhon",
+  "Jillian",
+  "Joan",
+  "Jocelyn",
+  "John",
+  "Joshua",
+  "Joy",
+  "Julia",
+  "Julian",
+  "Justine",
+  "Karl",
+  "Katrina",
+  "Kean",
+  "Ken",
+  "Kris",
+  "Kristine",
+  "Lance",
+  "Lara",
+  "Lianne",
+  "Lloyd",
+  "Lois",
+  "Louise",
+  "Maica",
+  "Marian",
+  "Marielle",
+  "Marlon",
+  "Mary",
+  "Michaela",
+  "Miguel",
+  "Nadine",
+  "Nico",
+  "Noel",
+  "Noreen",
+  "Oscar",
+  "Patricia",
+  "Paulo",
+  "Precious",
+  "Rafael",
+  "Randy",
+  "Rhea",
+  "Rhen",
+  "Rica",
+  "Rina",
+  "Rizalyn",
+  "Rochelle",
+  "Rolly",
+  "Rose",
+  "Ruben",
+  "Ruel",
+  "Ryan",
+  "Samantha",
+  "Sarah",
+  "Sean",
+  "Shaira",
+  "Sheila",
+  "Shiela",
+  "Sofia",
+  "Stella",
+  "Tyrone",
+  "Vanessa",
+  "Vince",
+  "Warren",
+  "Yvette",
+  "Yza",
+  "Zara",
+  "Zion",
 ];
 
 const LAST_NAMES = [
-  "Abad", "Abarca", "Aguilar", "Alcantara", "Alvarez", "Andres", "Anzures", "Aquino", "Bacalso", "Bautista",
-  "Beltran", "Bermudez", "Biscocho", "Borja", "Bulanadi", "Cabrera", "Caluag", "Canlas", "Cayanan", "Cruz",
-  "Dela Cruz", "Dela Rosa", "Del Mundo", "Dimaculangan", "Dizon", "Esguerra", "Estrella", "Fernandez", "Flores", "Galang",
-  "Garcia", "Gonzales", "Hernandez", "Ilagan", "Jimenez", "Labrador", "Lacson", "Ledesma", "Lorenzo", "Macalalad",
-  "Magno", "Manalo", "Marasigan", "Martinez", "Mendoza", "Molina", "Natividad", "Nicolas", "Ocampo", "Ortega",
-  "Padilla", "Panganiban", "Pascual", "Perez", "Pineda", "Puig", "Quezada", "Reyes", "Rico", "Rivera",
-  "Robles", "Rosales", "Salazar", "Santos", "Sison", "Soberano", "Soliman", "Soria", "Suarez", "Tolentino",
-  "Torres", "Trinidad", "Valdez", "Valencia", "Vargas", "Velasco", "Villanueva", "Villareal", "Yap", "Zamora",
+  "Abad",
+  "Abarca",
+  "Aguilar",
+  "Alcantara",
+  "Alvarez",
+  "Andres",
+  "Anzures",
+  "Aquino",
+  "Bacalso",
+  "Bautista",
+  "Beltran",
+  "Bermudez",
+  "Biscocho",
+  "Borja",
+  "Bulanadi",
+  "Cabrera",
+  "Caluag",
+  "Canlas",
+  "Cayanan",
+  "Cruz",
+  "Dela Cruz",
+  "Dela Rosa",
+  "Del Mundo",
+  "Dimaculangan",
+  "Dizon",
+  "Esguerra",
+  "Estrella",
+  "Fernandez",
+  "Flores",
+  "Galang",
+  "Garcia",
+  "Gonzales",
+  "Hernandez",
+  "Ilagan",
+  "Jimenez",
+  "Labrador",
+  "Lacson",
+  "Ledesma",
+  "Lorenzo",
+  "Macalalad",
+  "Magno",
+  "Manalo",
+  "Marasigan",
+  "Martinez",
+  "Mendoza",
+  "Molina",
+  "Natividad",
+  "Nicolas",
+  "Ocampo",
+  "Ortega",
+  "Padilla",
+  "Panganiban",
+  "Pascual",
+  "Perez",
+  "Pineda",
+  "Puig",
+  "Quezada",
+  "Reyes",
+  "Rico",
+  "Rivera",
+  "Robles",
+  "Rosales",
+  "Salazar",
+  "Santos",
+  "Sison",
+  "Soberano",
+  "Soliman",
+  "Soria",
+  "Suarez",
+  "Tolentino",
+  "Torres",
+  "Trinidad",
+  "Valdez",
+  "Valencia",
+  "Vargas",
+  "Velasco",
+  "Villanueva",
+  "Villareal",
+  "Yap",
+  "Zamora",
 ];
 
 const MIDDLE_NAMES = [
-  "Angela", "Anita", "Aurelia", "Bernadette", "Cecilia", "Cristina", "Dahlia", "Daisy", "Delia", "Evelyn",
-  "Faith", "Florence", "Gloria", "Grace", "Helena", "Irene", "Isabel", "Jasmine", "Joy", "Karen",
-  "Lourdes", "Luz", "Margarita", "Maria", "Marilyn", "Marisol", "Mina", "Myrna", "Nadia", "Nora",
-  "Patricia", "Pilar", "Rhea", "Rina", "Rosal", "Rosemary", "Sabrina", "Sarah", "Sofia", "Teresa",
-  "Veronica", "Victoria", "Vivian", "Wendy", "Yvonne", "Zenaida",
+  "Angela",
+  "Anita",
+  "Aurelia",
+  "Bernadette",
+  "Cecilia",
+  "Cristina",
+  "Dahlia",
+  "Daisy",
+  "Delia",
+  "Evelyn",
+  "Faith",
+  "Florence",
+  "Gloria",
+  "Grace",
+  "Helena",
+  "Irene",
+  "Isabel",
+  "Jasmine",
+  "Joy",
+  "Karen",
+  "Lourdes",
+  "Luz",
+  "Margarita",
+  "Maria",
+  "Marilyn",
+  "Marisol",
+  "Mina",
+  "Myrna",
+  "Nadia",
+  "Nora",
+  "Patricia",
+  "Pilar",
+  "Rhea",
+  "Rina",
+  "Rosal",
+  "Rosemary",
+  "Sabrina",
+  "Sarah",
+  "Sofia",
+  "Teresa",
+  "Veronica",
+  "Victoria",
+  "Vivian",
+  "Wendy",
+  "Yvonne",
+  "Zenaida",
 ];
 
 const PLACES = [
-  "Lucena City, Quezon", "Tayabas City, Quezon", "Sariaya, Quezon", "Pagbilao, Quezon", "Candelaria, Quezon",
-  "Mauban, Quezon", "Gumaca, Quezon", "Lopez, Quezon", "Atimonan, Quezon", "Tagkawayan, Quezon",
-  "Polillo, Quezon", "San Antonio, Quezon", "Calauag, Quezon", "Mulanay, Quezon", "Infanta, Quezon",
-  "Unisan, Quezon", "Buenavista, Quezon", "General Luna, Quezon", "Agdangan, Quezon", "Plaridel, Quezon",
+  "Lucena City, Quezon",
+  "Tayabas City, Quezon",
+  "Sariaya, Quezon",
+  "Pagbilao, Quezon",
+  "Candelaria, Quezon",
+  "Mauban, Quezon",
+  "Gumaca, Quezon",
+  "Lopez, Quezon",
+  "Atimonan, Quezon",
+  "Tagkawayan, Quezon",
+  "Polillo, Quezon",
+  "San Antonio, Quezon",
+  "Calauag, Quezon",
+  "Mulanay, Quezon",
+  "Infanta, Quezon",
+  "Unisan, Quezon",
+  "Buenavista, Quezon",
+  "General Luna, Quezon",
+  "Agdangan, Quezon",
+  "Plaridel, Quezon",
 ];
 
 const BARANGAYS = [
-  "Brgy. Ibabang Iyam", "Brgy. Ilayang Iyam", "Brgy. Gulang-Gulang", "Brgy. Market View", "Brgy. Dalahican",
-  "Brgy. Mayao Crossing", "Brgy. Cotta", "Brgy. Isabang", "Brgy. Lagalag", "Brgy. Lusacan",
-  "Brgy. San Antonio", "Brgy. Wakas", "Brgy. Malabanban Norte", "Brgy. Masinloc", "Brgy. Tupaz",
-  "Brgy. Silangang Mayao", "Brgy. Ibabang Dupay", "Brgy. Ilayang Dupay", "Brgy. Bagong Silang", "Brgy. Sta. Cruz",
+  "Brgy. Ibabang Iyam",
+  "Brgy. Ilayang Iyam",
+  "Brgy. Gulang-Gulang",
+  "Brgy. Market View",
+  "Brgy. Dalahican",
+  "Brgy. Mayao Crossing",
+  "Brgy. Cotta",
+  "Brgy. Isabang",
+  "Brgy. Lagalag",
+  "Brgy. Lusacan",
+  "Brgy. San Antonio",
+  "Brgy. Wakas",
+  "Brgy. Malabanban Norte",
+  "Brgy. Masinloc",
+  "Brgy. Tupaz",
+  "Brgy. Silangang Mayao",
+  "Brgy. Ibabang Dupay",
+  "Brgy. Ilayang Dupay",
+  "Brgy. Bagong Silang",
+  "Brgy. Sta. Cruz",
 ];
 
 function pick(list) {
@@ -76,12 +331,18 @@ function seededValue(seed, min, max) {
 
 function deriveAcademicYearForPlan(currentAcademicYear, currentYearIndex, targetYearIndex) {
   const startYear = Number(String(currentAcademicYear || "").split("-")[0]);
-  const targetStart = Number.isFinite(startYear) ? startYear - (currentYearIndex - targetYearIndex) : new Date().getFullYear() - (currentYearIndex - targetYearIndex);
+  const targetStart = Number.isFinite(startYear)
+    ? startYear - (currentYearIndex - targetYearIndex)
+    : new Date().getFullYear() - (currentYearIndex - targetYearIndex);
   const targetEnd = targetStart + 1;
   return `${targetStart}-${targetEnd}`;
 }
 
-export function buildAcademicHistoryPlan({ yearLevel = "1st Year", semester = "1st Semester", academicYear = "2026-2027" } = {}) {
+export function buildAcademicHistoryPlan({
+  yearLevel = "1st Year",
+  semester = "1st Semester",
+  academicYear = "2026-2027",
+} = {}) {
   const currentYearIndex = YEAR_LEVEL_INDEX[yearLevel] || 1;
   const currentSemester = ACTIVE_SEMESTERS.includes(semester) ? semester : "1st Semester";
   const plan = [];
@@ -89,11 +350,12 @@ export function buildAcademicHistoryPlan({ yearLevel = "1st Year", semester = "1
   for (let yearIndex = 1; yearIndex <= currentYearIndex; yearIndex += 1) {
     const yearLevelName = YEAR_LEVELS[yearIndex - 1];
     const isCurrentYear = yearIndex === currentYearIndex;
-    const semestersForYear = yearIndex < currentYearIndex
-      ? ACTIVE_SEMESTERS
-      : currentSemester === "2nd Semester"
+    const semestersForYear =
+      yearIndex < currentYearIndex
         ? ACTIVE_SEMESTERS
-        : [currentSemester];
+        : currentSemester === "2nd Semester"
+          ? ACTIVE_SEMESTERS
+          : [currentSemester];
 
     for (const term of semestersForYear) {
       plan.push({
@@ -109,11 +371,21 @@ export function buildAcademicHistoryPlan({ yearLevel = "1st Year", semester = "1
 
 export function generateGradeBreakdown({ period = "final", studentSeed = 1 } = {}) {
   const base = Math.max(65, Math.min(95, seededValue(studentSeed * 11, 72, 94)));
-  const quiz = Number(Math.max(60, Math.min(100, base - 4 + seededValue(studentSeed + 1, -2, 3))).toFixed(2));
-  const activities = Number(Math.max(60, Math.min(100, base - 2 + seededValue(studentSeed + 2, -3, 3))).toFixed(2));
-  const assignments = Number(Math.max(60, Math.min(100, base + seededValue(studentSeed + 3, -2, 3))).toFixed(2));
-  const exam = Number(Math.max(60, Math.min(100, base + 5 + seededValue(studentSeed + 4, -4, 4))).toFixed(2));
-  const periodGrade = Number(((quiz * 0.2) + (activities * 0.2) + (assignments * 0.2) + (exam * 0.4)).toFixed(2));
+  const quiz = Number(
+    Math.max(60, Math.min(100, base - 4 + seededValue(studentSeed + 1, -2, 3))).toFixed(2),
+  );
+  const activities = Number(
+    Math.max(60, Math.min(100, base - 2 + seededValue(studentSeed + 2, -3, 3))).toFixed(2),
+  );
+  const assignments = Number(
+    Math.max(60, Math.min(100, base + seededValue(studentSeed + 3, -2, 3))).toFixed(2),
+  );
+  const exam = Number(
+    Math.max(60, Math.min(100, base + 5 + seededValue(studentSeed + 4, -4, 4))).toFixed(2),
+  );
+  const periodGrade = Number(
+    (quiz * 0.2 + activities * 0.2 + assignments * 0.2 + exam * 0.4).toFixed(2),
+  );
 
   const components = [
     { type: "quiz", component: "quiz", grade: quiz },
@@ -185,9 +457,14 @@ function mapProgramToYearLevelProgram(program) {
   }
 }
 
-export function buildStudentSeedData({ academicYear = "2026-2027", activeSemester = "1st Semester" } = {}) {
+export function buildStudentSeedData({
+  academicYear = "2026-2027",
+  activeSemester = "1st Semester",
+} = {}) {
   const students = [];
-  const resolvedSemester = ACTIVE_SEMESTERS.includes(activeSemester) ? activeSemester : "1st Semester";
+  const resolvedSemester = ACTIVE_SEMESTERS.includes(activeSemester)
+    ? activeSemester
+    : "1st Semester";
   let index = 0;
 
   for (const program of PIAT_PROGRAMS) {
@@ -263,13 +540,14 @@ async function seedAcademicHistoryForStudent(db, student) {
       [student.program, entry.yearLevel, entry.semester, entry.academicYear],
     );
 
-    const fallbackOfferings = offerings.length > 0
-      ? offerings
-      : await all(
-          db,
-          `SELECT id, code, title, units FROM subjects WHERE program = ? AND yearLevel = ? AND semester = ? ORDER BY code`,
-          [student.program, entry.yearLevel, entry.semester],
-        );
+    const fallbackOfferings =
+      offerings.length > 0
+        ? offerings
+        : await all(
+            db,
+            `SELECT id, code, title, units FROM subjects WHERE program = ? AND yearLevel = ? AND semester = ? ORDER BY code`,
+            [student.program, entry.yearLevel, entry.semester],
+          );
 
     if (!fallbackOfferings || fallbackOfferings.length === 0) {
       continue;
@@ -287,12 +565,24 @@ async function seedAcademicHistoryForStudent(db, student) {
         await run(
           db,
           `INSERT INTO enrollments (id, studentId, subjectId, academicYear, semester, enrolledAt, status) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [enrollmentId, student.studentId, offering.id, entry.academicYear, entry.semester, new Date().toISOString(), "enrolled"],
+          [
+            enrollmentId,
+            student.studentId,
+            offering.id,
+            entry.academicYear,
+            entry.semester,
+            new Date().toISOString(),
+            "enrolled",
+          ],
         );
         created.push({ ...entry, subjectId: offering.id });
       }
 
-      const existingGrades = await all(db, `SELECT id FROM grades WHERE studentId = ? AND subjectId = ?`, [student.studentId, offering.id]);
+      const existingGrades = await all(
+        db,
+        `SELECT id FROM grades WHERE studentId = ? AND subjectId = ?`,
+        [student.studentId, offering.id],
+      );
       if (existingGrades.length > 0) {
         continue;
       }
@@ -303,8 +593,14 @@ async function seedAcademicHistoryForStudent(db, student) {
       });
 
       const periodGrades = {
-        prelim: generateGradeBreakdown({ period: "prelim", studentSeed: Number(String(student.studentId).split("-").pop() || 1) + 1 }),
-        midterm: generateGradeBreakdown({ period: "midterm", studentSeed: Number(String(student.studentId).split("-").pop() || 1) + 2 }),
+        prelim: generateGradeBreakdown({
+          period: "prelim",
+          studentSeed: Number(String(student.studentId).split("-").pop() || 1) + 1,
+        }),
+        midterm: generateGradeBreakdown({
+          period: "midterm",
+          studentSeed: Number(String(student.studentId).split("-").pop() || 1) + 2,
+        }),
         final: breakdown,
       };
 
@@ -327,15 +623,43 @@ async function seedAcademicHistoryForStudent(db, student) {
         await run(
           db,
           `INSERT INTO grades (id, studentId, subjectId, grade, remarks, period, type, component, status, submittedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [crypto.randomUUID(), student.studentId, offering.id, entryRow.grade, entryRow.remarks, entryRow.period, entryRow.type, entryRow.component, "finalized", Date.now()],
+          [
+            crypto.randomUUID(),
+            student.studentId,
+            offering.id,
+            entryRow.grade,
+            entryRow.remarks,
+            entryRow.period,
+            entryRow.type,
+            entryRow.component,
+            "finalized",
+            Date.now(),
+          ],
         );
       }
 
-      const finalGrade = Number(((periodGrades.prelim.overall.grade * 0.3) + (periodGrades.midterm.overall.grade * 0.3) + (periodGrades.final.overall.grade * 0.4)).toFixed(2));
+      const finalGrade = Number(
+        (
+          periodGrades.prelim.overall.grade * 0.3 +
+          periodGrades.midterm.overall.grade * 0.3 +
+          periodGrades.final.overall.grade * 0.4
+        ).toFixed(2),
+      );
       await run(
         db,
         `INSERT INTO grades (id, studentId, subjectId, grade, remarks, period, type, component, status, submittedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [crypto.randomUUID(), student.studentId, offering.id, finalGrade, finalGrade >= 75 ? "Passed" : finalGrade >= 60 ? "INC" : "Failed", "final", "overall", "final", "finalized", Date.now()],
+        [
+          crypto.randomUUID(),
+          student.studentId,
+          offering.id,
+          finalGrade,
+          finalGrade >= 75 ? "Passed" : finalGrade >= 60 ? "INC" : "Failed",
+          "final",
+          "overall",
+          "final",
+          "finalized",
+          Date.now(),
+        ],
       );
     }
   }
@@ -346,7 +670,10 @@ async function seedAcademicHistoryForStudent(db, student) {
 export async function backfillAcademicRecordsForAllStudents() {
   const db = await openDb();
   try {
-    const students = await all(db, `SELECT studentId, program, yearLevel, semester, academicYear FROM students WHERE studentId IS NOT NULL`);
+    const students = await all(
+      db,
+      `SELECT studentId, program, yearLevel, semester, academicYear FROM students WHERE studentId IS NOT NULL`,
+    );
     for (const student of students) {
       await seedAcademicHistoryForStudent(db, student);
     }
@@ -356,16 +683,26 @@ export async function backfillAcademicRecordsForAllStudents() {
   }
 }
 
-export async function seedStudentRecords({ academicYear = "2026-2027", activeSemester = "1st Semester" } = {}) {
+export async function seedStudentRecords({
+  academicYear = "2026-2027",
+  activeSemester = "1st Semester",
+} = {}) {
   const db = await openDb();
   try {
     const existingCount = await get(db, "SELECT COUNT(*) AS count FROM students");
     if (Number(existingCount?.count || 0) >= 900) {
-      const students = await all(db, "SELECT studentId, program, yearLevel, semester, academicYear FROM students WHERE studentId IS NOT NULL");
+      const students = await all(
+        db,
+        "SELECT studentId, program, yearLevel, semester, academicYear FROM students WHERE studentId IS NOT NULL",
+      );
       for (const student of students) {
         await seedAcademicHistoryForStudent(db, student);
       }
-      return { inserted: 0, existing: Number(existingCount?.count || 0), backfilled: students.length };
+      return {
+        inserted: 0,
+        existing: Number(existingCount?.count || 0),
+        backfilled: students.length,
+      };
     }
 
     await run(db, "DELETE FROM enrollments");
@@ -405,7 +742,9 @@ export async function seedStudentRecords({ academicYear = "2026-2027", activeSem
         reviewNote: "Seeded student data",
       });
 
-      const existingStudent = await get(db, "SELECT id FROM students WHERE studentId = ?", [normalized.studentId]);
+      const existingStudent = await get(db, "SELECT id FROM students WHERE studentId = ?", [
+        normalized.studentId,
+      ]);
       if (!existingStudent) {
         await run(
           db,

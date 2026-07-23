@@ -112,9 +112,7 @@ export function AppSidebar() {
               <span className="font-heading text-sm font-bold tracking-wide text-sidebar-primary-foreground">
                 PIAT
               </span>
-              <span className="text-xs text-sidebar-foreground/60">
-                {roleLabels[user.role]}
-              </span>
+              <span className="text-xs text-sidebar-foreground/60">{roleLabels[user.role]}</span>
             </div>
           </div>
         )}
@@ -152,7 +150,10 @@ export function AppSidebar() {
         {!collapsed && (
           <div className="mb-3 flex items-center gap-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-sidebar-accent text-xs font-bold text-sidebar-accent-foreground">
-              {user.name.split(" ").map(n => n[0]).join("")}
+              {user.name
+                .split(" ")
+                .map((n) => n[0])
+                .join("")}
             </div>
             <div className="flex flex-col">
               <span className="text-xs font-medium text-sidebar-foreground">{user.name}</span>

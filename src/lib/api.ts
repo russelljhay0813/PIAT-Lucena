@@ -5,7 +5,8 @@ async function request<T>(path: string, opts: RequestInit = {}, authToken?: stri
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
   try {
-    const storedSession = typeof window !== "undefined" ? window.localStorage.getItem("piat-auth-user") : null;
+    const storedSession =
+      typeof window !== "undefined" ? window.localStorage.getItem("piat-auth-user") : null;
     const authUser = storedSession ? JSON.parse(storedSession) : null;
     // Build HeadersInit safely from possible opts.headers variants
     let headers: HeadersInit = { "Content-Type": "application/json" };
@@ -19,7 +20,10 @@ async function request<T>(path: string, opts: RequestInit = {}, authToken?: stri
           (headers as Record<string, string>)[key] = value;
         }
       } else {
-        headers = { ...(headers as Record<string, string>), ...(opts.headers as Record<string, string>) };
+        headers = {
+          ...(headers as Record<string, string>),
+          ...(opts.headers as Record<string, string>),
+        };
       }
     }
 
@@ -203,7 +207,11 @@ export async function fetchStudents(status?: string) {
 }
 
 export async function fetchStudentById(studentId: string, authToken?: string) {
-  return request<StudentRegistration>(`/api/students/${encodeURIComponent(studentId)}`, {}, authToken);
+  return request<StudentRegistration>(
+    `/api/students/${encodeURIComponent(studentId)}`,
+    {},
+    authToken,
+  );
 }
 
 export async function createStudent(student: StudentRegistrationPayload) {
@@ -213,7 +221,12 @@ export async function createStudent(student: StudentRegistrationPayload) {
   });
 }
 
-export async function updateStudent(studentId: string, patch: Partial<StudentRegistrationPayload & { status?: string; reviewedAt?: string; reviewNote?: string }>) {
+export async function updateStudent(
+  studentId: string,
+  patch: Partial<
+    StudentRegistrationPayload & { status?: string; reviewedAt?: string; reviewNote?: string }
+  >,
+) {
   return request<StudentRegistration>(`/api/students/${encodeURIComponent(studentId)}`, {
     method: "PUT",
     body: JSON.stringify(patch),
@@ -248,7 +261,11 @@ export async function fetchGrades(subjectId?: string, studentId?: string) {
   return request<GradeEntry[]>(`/api/grades${query}`);
 }
 
-export async function fetchAttendanceRecords(subjectId?: string, date?: string, studentId?: string): Promise<AttendanceRecord[]> {
+export async function fetchAttendanceRecords(
+  subjectId?: string,
+  date?: string,
+  studentId?: string,
+): Promise<AttendanceRecord[]> {
   const params = new URLSearchParams();
   if (subjectId) params.set("subjectId", subjectId);
   if (date) params.set("date", date);
@@ -265,12 +282,13 @@ export async function saveGrade(grade: GradePayload) {
 }
 
 export async function deleteGradeApi(studentId: string, subjectId: string) {
-  return request<void>(`/api/grades?studentId=${encodeURIComponent(studentId)}&subjectId=${encodeURIComponent(subjectId)}`, {
-    method: "DELETE",
-  });
+  return request<void>(
+    `/api/grades?studentId=${encodeURIComponent(studentId)}&subjectId=${encodeURIComponent(subjectId)}`,
+    {
+      method: "DELETE",
+    },
+  );
 }
-
-
 
 export interface Subject {
   id: string;
@@ -457,7 +475,11 @@ export async function createUser(user: {
   });
 }
 
-export async function fetchEnrollments(studentId?: string, academicYear?: string, semester?: string) {
+export async function fetchEnrollments(
+  studentId?: string,
+  academicYear?: string,
+  semester?: string,
+) {
   const params = new URLSearchParams();
   if (studentId) params.set("studentId", studentId);
   if (academicYear) params.set("academicYear", academicYear);
@@ -527,7 +549,10 @@ export async function createProgram(program: { name: string; description?: strin
   });
 }
 
-export async function updateProgramApi(id: string, program: Partial<{ name: string; description: string }>) {
+export async function updateProgramApi(
+  id: string,
+  program: Partial<{ name: string; description: string }>,
+) {
   return request<Program>(`/api/programs/${id}`, {
     method: "PUT",
     body: JSON.stringify(program),
@@ -559,7 +584,14 @@ export async function fetchCurriculum(programId?: string, programName?: string) 
   return request<CurriculumItem[]>(`/api/curriculum${query}`);
 }
 
-export async function createCurriculumItem(item: { programId: string; yearLevel: string; semester: string; subjectCode: string; subjectTitle: string; units: number }) {
+export async function createCurriculumItem(item: {
+  programId: string;
+  yearLevel: string;
+  semester: string;
+  subjectCode: string;
+  subjectTitle: string;
+  units: number;
+}) {
   return request<CurriculumItem>("/api/curriculum", {
     method: "POST",
     body: JSON.stringify(item),
@@ -576,10 +608,23 @@ export async function fetchEligibleReenrollments() {
   return request<any[]>("/api/students/eligible-for-reenrollment");
 }
 
-export async function reenrollStudent(studentId: string, data: { nextSemester?: string; nextYear?: string; nextAcademicYear?: string }) {
+export async function reenrollStudent(
+  studentId: string,
+  data: { nextSemester?: string; nextYear?: string; nextAcademicYear?: string },
+) {
   return request<any>(`/api/students/${encodeURIComponent(studentId)}/reenroll`, {
     method: "POST",
     body: JSON.stringify(data),
+  });
+}
+
+export async function finalizeStudentRecords(
+  studentId: string,
+  data?: { period?: string; subjectId?: string; academicYear?: string; semester?: string },
+) {
+  return request<any>(`/api/students/${encodeURIComponent(studentId)}/finalize-records`, {
+    method: "POST",
+    body: JSON.stringify(data || {}),
   });
 }
 
@@ -603,11 +648,28 @@ export async function fetchAnnouncements() {
   return request<Announcement[]>("/api/announcements");
 }
 
+export async function fetchSettings() {
+  return request<Record<string, string | boolean>>("/api/settings");
+}
+
+export async function saveSettings(settings: Record<string, string | boolean>) {
+  return request<{ success: true }>("/api/settings", {
+    method: "PUT",
+    body: JSON.stringify(settings),
+  });
+}
+
 export async function fetchNotifications(userId: string) {
   return request<NotificationItem[]>(`/api/notifications?userId=${encodeURIComponent(userId)}`);
 }
 
-export async function createAnnouncement(announcement: { title: string; body: string; audience: string; authorName: string; authorRole: string }) {
+export async function createAnnouncement(announcement: {
+  title: string;
+  body: string;
+  audience: string;
+  authorName: string;
+  authorRole: string;
+}) {
   return request<any>("/api/announcements", {
     method: "POST",
     body: JSON.stringify(announcement),

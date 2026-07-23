@@ -11,9 +11,8 @@ export const Route = createFileRoute("/dashboard/admin/security")({
 function AdminSecurity() {
   const users = useUsers();
   const activityLogs = useActivityLogs();
-  
+
   const activeUsers = users.filter((u) => u.status === "active").length;
-  const twoFactorEnabled = users.filter((u) => u.temporaryPassword).length;
 
   return (
     <div className="space-y-6">
@@ -25,16 +24,30 @@ function AdminSecurity() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
           { title: "Active Users", value: activeUsers, icon: Shield },
-          { title: "Account Types", value: users.length > 0 ? "Active" : "No data", icon: Lock, subtitle: "Registered users" },
-          { title: "New Accounts", value: users.filter((u) => {
+          {
+            title: "Account Types",
+            value: users.length > 0 ? "Active" : "No data",
+            icon: Lock,
+            subtitle: "Registered users",
+          },
+          {
+            title: "New Accounts",
+            value: users.filter((u) => {
               const created = new Date(u.createdAt);
               const thirtyDaysAgo = new Date();
               thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
               return created > thirtyDaysAgo;
-            }).length, icon: Eye, subtitle: "Last 30 days" 
+            }).length,
+            icon: Eye,
+            subtitle: "Last 30 days",
           },
         ].map((s, i) => (
-          <motion.div key={s.title} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }}>
+          <motion.div
+            key={s.title}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.08 }}
+          >
             <StatCard {...s} />
           </motion.div>
         ))}
@@ -49,8 +62,13 @@ function AdminSecurity() {
         ) : (
           <div className="mt-4 space-y-2">
             {activityLogs.map((log, i) => (
-              <motion.div key={log.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}
-                className="flex items-center justify-between rounded-lg bg-muted/50 px-4 py-3">
+              <motion.div
+                key={log.id}
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: i * 0.05 }}
+                className="flex items-center justify-between rounded-lg bg-muted/50 px-4 py-3"
+              >
                 <div className="flex items-center gap-3">
                   <div className="h-2.5 w-2.5 rounded-full bg-success" />
                   <div>

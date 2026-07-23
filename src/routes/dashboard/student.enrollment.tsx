@@ -2,11 +2,11 @@ import { createFileRoute } from "@tanstack/react-router";
 import { motion } from "framer-motion";
 import { BookOpen, Sparkles, RefreshCw, CheckCircle2 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
-import { useEnrolledSubjects, enrollStudent as enrollStudentApi } from "@/lib/enrollment-store";
+import { useEnrolledSubjects } from "@/lib/enrollment-store";
 import { useGrades } from "@/lib/grades-store";
 import { useSubjects, getCurriculumSubjects, YEAR_LEVELS, SEMESTERS } from "@/lib/subjects-store";
 import { useState, useEffect } from "react";
-import { updateStudent } from "@/lib/api";
+import { reenrollStudent } from "@/lib/api";
 
 export const Route = createFileRoute("/dashboard/student/enrollment")({
   component: StudentEnrollment,
@@ -17,14 +17,16 @@ function StudentEnrollment() {
   const enrolledSubjects = useEnrolledSubjects(user?.studentId ?? "");
   const grades = useGrades();
   const allSubjects = useSubjects();
-  
+
   const [showReenrollModal, setShowReenrollModal] = useState(false);
   const [canReenroll, setCanReenroll] = useState(false);
   const [nextSemesterInfo, setNextSemesterInfo] = useState<{
     yearLevel: string;
     semester: string;
   } | null>(null);
-  const [curriculumSubjects, setCurriculumSubjects] = useState<{ code: string; title: string; units: number }[]>([]);
+  const [curriculumSubjects, setCurriculumSubjects] = useState<
+    { code: string; title: string; units: number }[]
+  >([]);
 
   const totalUnits = enrolledSubjects.reduce((sum, s) => sum + s.units, 0);
   const program = user?.program || "";
@@ -36,7 +38,11 @@ function StudentEnrollment() {
         return;
       }
       try {
-        const items = await getCurriculumSubjects(program, nextSemesterInfo.yearLevel, nextSemesterInfo.semester);
+        const items = await getCurriculumSubjects(
+          program,
+          nextSemesterInfo.yearLevel,
+          nextSemesterInfo.semester,
+        );
         setCurriculumSubjects(items);
       } catch {
         setCurriculumSubjects([]);
@@ -62,7 +68,7 @@ function StudentEnrollment() {
       setCanReenroll(true);
       const currentSemester = enrolledSubjects[0].semester || SEMESTERS[0];
       const currentYear = enrolledSubjects[0].yearLevel || YEAR_LEVELS[0];
-      
+
       let nextYear = currentYear;
       let nextSem = currentSemester;
 
@@ -81,26 +87,21 @@ function StudentEnrollment() {
   }, [user?.studentId, enrolledSubjects, grades]);
 
   const handleReenroll = async () => {
-    const currentYear = new Date().getFullYear();
-    const academicYear = `${currentYear}-${currentYear + 1}`;
-    
-    const subjectIds = curriculumSubjects
-      .map((s) => allSubjects.find((sub) => sub.code === s.code)?.id)
-      .filter(Boolean) as string[];
-
-    if (subjectIds.length > 0 && user?.studentId) {
-      await enrollStudentApi(user.studentId, subjectIds, academicYear, nextSemesterInfo!.semester);
+    if (!nextSemesterInfo || !user?.studentId) return;
+    try {
+      await reenrollStudent(user.studentId, {
+        nextYear: nextSemesterInfo.yearLevel,
+        nextSemester: nextSemesterInfo.semester,
+      });
+      setShowReenrollModal(false);
+      import("sonner").then(({ toast }) => {
+        toast.success("Re-enrollment submitted successfully.");
+      });
+    } catch (err: any) {
+      import("sonner").then(({ toast }) => {
+        toast.error(err?.message || "Failed to submit re-enrollment request.");
+      });
     }
-    
-    // Update student year level if advancing
-    if (nextSemesterInfo && user?.studentId && user.yearLevel !== nextSemesterInfo.yearLevel) {
-      await updateStudent(user.studentId, { yearLevel: nextSemesterInfo.yearLevel });
-    }
-    
-    setShowReenrollModal(false);
-    import("sonner").then(({ toast }) => {
-      toast.success("Re-enrollment request submitted. Contact registrar for final approval.");
-    });
   };
 
   return (
@@ -109,7 +110,8 @@ function StudentEnrollment() {
         <div>
           <h1 className="font-heading text-xl font-bold text-foreground">Enrollment</h1>
           <p className="text-sm text-muted-foreground">
-            Subjects assigned to you for this semester. Re-enrollment available after all grades are submitted.
+            Subjects assigned to you for this semester. Re-enrollment available after all grades are
+            submitted.
           </p>
         </div>
         {canReenroll && (
@@ -142,9 +144,7 @@ function StudentEnrollment() {
       <div className="rounded-xl border bg-card p-5 shadow-sm">
         <div className="mb-4 flex items-center gap-2">
           <BookOpen className="h-4 w-4 text-accent" />
-          <h2 className="font-heading text-sm font-semibold text-card-foreground">
-            My Subjects
-          </h2>
+          <h2 className="font-heading text-sm font-semibold text-card-foreground">My Subjects</h2>
         </div>
 
         {enrolledSubjects.length === 0 ? (
@@ -157,9 +157,11 @@ function StudentEnrollment() {
         ) : (
           <div className="space-y-2">
             {enrolledSubjects.map((s) => {
-              const grade = grades.find((g) => g.studentId === user?.studentId && g.subjectId === s.id);
+              const grade = grades.find(
+                (g) => g.studentId === user?.studentId && g.subjectId === s.id,
+              );
               const hasGrade = !!grade && grade.status === "submitted";
-              
+
               return (
                 <motion.div
                   key={s.id}

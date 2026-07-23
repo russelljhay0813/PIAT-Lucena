@@ -75,7 +75,9 @@ function RegistrarReenrollment() {
     <div className="space-y-6">
       <div>
         <h1 className="font-heading text-xl font-bold text-foreground">Re-enrollment</h1>
-        <p className="text-sm text-muted-foreground">Approve re-enrollment for students with finalized grades</p>
+        <p className="text-sm text-muted-foreground">
+          Approve re-enrollment for students with finalized grades
+        </p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
@@ -110,8 +112,12 @@ function RegistrarReenrollment() {
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Student ID</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Name</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Program</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Current Year</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Current Semester</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Current Year
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Current Semester
+              </th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Action</th>
             </tr>
@@ -126,7 +132,9 @@ function RegistrarReenrollment() {
                 className="border-b last:border-0 hover:bg-muted/30 transition-colors"
               >
                 <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{s.studentId}</td>
-                <td className="px-4 py-3 font-medium text-foreground">{s.firstName} {s.lastName}</td>
+                <td className="px-4 py-3 font-medium text-foreground">
+                  {s.firstName} {s.lastName}
+                </td>
                 <td className="px-4 py-3 text-muted-foreground">{s.program}</td>
                 <td className="px-4 py-3 text-muted-foreground">{s.yearLevel}</td>
                 <td className="px-4 py-3 text-muted-foreground">{s.semester}</td>

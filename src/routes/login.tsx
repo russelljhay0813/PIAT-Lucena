@@ -10,7 +10,10 @@ export const Route = createFileRoute("/login")({
   head: () => ({
     meta: [
       { title: "Login — PIAT Academic Management System" },
-      { name: "description", content: "Sign in to the PIAT Academic Management System to access your dashboard." },
+      {
+        name: "description",
+        content: "Sign in to the PIAT Academic Management System to access your dashboard.",
+      },
     ],
   }),
   component: LoginPage,
@@ -103,7 +106,10 @@ function LoginPage() {
       if (userAccount.role === "student") {
         try {
           if (userAccount.studentId) {
-            studentRecord = await fetchStudentById(userAccount.studentId, (userAccount as any).token);
+            studentRecord = await fetchStudentById(
+              userAccount.studentId,
+              (userAccount as any).token,
+            );
           } else {
             studentRecord = await loginStudent(email, password);
           }
@@ -166,16 +172,25 @@ function LoginPage() {
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary text-2xl font-semibold text-primary-foreground shadow-lg">
             PIAT
           </div>
-          <h1 className="font-heading text-3xl font-semibold text-foreground">PIAT Academic Management System</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Secure sign-in for students, faculty, registrar, and administrators.</p>
+          <h1 className="font-heading text-3xl font-semibold text-foreground">
+            PIAT Academic Management System
+          </h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Secure sign-in for students, faculty, registrar, and administrators.
+          </p>
         </div>
 
         <div className="rounded-3xl border border-border bg-card p-6 shadow-xl shadow-maroon-primary/10">
           <h2 className="font-heading text-lg font-semibold text-foreground">User Login</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Use your registered email and password to continue.</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Use your registered email and password to continue.
+          </p>
           <form onSubmit={handleLogin} className="mt-6 space-y-4">
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-foreground" htmlFor="login-email">
+              <label
+                className="mb-1.5 block text-sm font-medium text-foreground"
+                htmlFor="login-email"
+              >
                 Email address
               </label>
               <input
@@ -194,7 +209,10 @@ function LoginPage() {
               />
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-foreground" htmlFor="login-password">
+              <label
+                className="mb-1.5 block text-sm font-medium text-foreground"
+                htmlFor="login-password"
+              >
                 Password
               </label>
               <div className="relative">
@@ -222,7 +240,12 @@ function LoginPage() {
               </div>
             </div>
             {error && (
-              <p id="login-error" role="alert" aria-live="polite" className="text-sm text-destructive">
+              <p
+                id="login-error"
+                role="alert"
+                aria-live="polite"
+                className="text-sm text-destructive"
+              >
                 {error}
               </p>
             )}

@@ -64,7 +64,7 @@
 
   /* Maroon & White palette for PIAT */
   --maroon-primary: oklch(0.35 0.15 0);
-  --maroon-dark: oklch(0.30 0.12 0);
+  --maroon-dark: oklch(0.3 0.12 0);
   --maroon-accent: oklch(0.45 0.18 0);
   --maroon-light: oklch(0.99 0.01 0);
 
@@ -79,12 +79,12 @@
   --secondary: oklch(0.98 0.01 0);
   --secondary-foreground: oklch(0.35 0.15 0);
   --muted: oklch(0.98 0.01 0);
-  --muted-foreground: oklch(0.40 0.08 0);
+  --muted-foreground: oklch(0.4 0.08 0);
   --accent: oklch(0.35 0.15 0);
   --accent-foreground: oklch(1 0 0);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(1 0 0);
-  --border: oklch(0.90 0.02 0);
+  --border: oklch(0.9 0.02 0);
   --input: oklch(0.98 0.01 0);
   --ring: oklch(0.35 0.15 0);
 
@@ -96,16 +96,16 @@
   --chart-1: oklch(0.35 0.15 0);
   --chart-2: oklch(0.55 0.15 155);
   --chart-3: oklch(0.75 0.15 75);
-  --chart-4: oklch(0.60 0.20 30);
+  --chart-4: oklch(0.6 0.2 30);
   --chart-5: oklch(0.55 0.15 300);
 
   --sidebar: oklch(0.35 0.15 0);
   --sidebar-foreground: oklch(0.98 0.01 0);
   --sidebar-primary: oklch(0.45 0.18 0);
   --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(0.30 0.12 0);
+  --sidebar-accent: oklch(0.3 0.12 0);
   --sidebar-accent-foreground: oklch(0.98 0.01 0);
-  --sidebar-border: oklch(0.40 0.12 0);
+  --sidebar-border: oklch(0.4 0.12 0);
   --sidebar-ring: oklch(0.45 0.18 0);
 }
 
@@ -124,7 +124,12 @@
     font-family: var(--font-body);
   }
 
-  h1, h2, h3, h4, h5, h6 {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     font-family: var(--font-heading);
   }
 }

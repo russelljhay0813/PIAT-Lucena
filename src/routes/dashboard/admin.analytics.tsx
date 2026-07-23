@@ -73,7 +73,10 @@ function AdminAnalytics() {
         ) : (
           <div className="mt-4 space-y-3">
             {programStats.map((p) => (
-              <div key={p.program} className="flex items-center justify-between rounded-lg bg-muted/50 px-4 py-3">
+              <div
+                key={p.program}
+                className="flex items-center justify-between rounded-lg bg-muted/50 px-4 py-3"
+              >
                 <span className="text-sm font-medium text-foreground">{p.program}</span>
                 <span className="text-sm font-medium text-foreground">{p.count}</span>
               </div>

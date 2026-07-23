@@ -44,8 +44,10 @@ function FacultyPerformance() {
     const loadData = async () => {
       try {
         const allGrades = await fetchGrades();
-        setGrades(allGrades.filter((g) => g.subjectId === selectedSubjectId && g.type === "overall"));
-        
+        setGrades(
+          allGrades.filter((g) => g.subjectId === selectedSubjectId && g.type === "overall"),
+        );
+
         const allEnrollments = await fetchEnrollments();
         const enrolledForSubject = allEnrollments
           .filter((e) => e.subjectId === selectedSubjectId && e.status === "enrolled")
@@ -60,7 +62,7 @@ function FacultyPerformance() {
     loadData();
   }, [selectedSubjectId]);
 
-const analytics = useMemo(() => {
+  const analytics = useMemo(() => {
     if (grades.length === 0) return null;
 
     const gradeValues = grades.map((g) => g.grade);
@@ -76,14 +78,19 @@ const analytics = useMemo(() => {
 
     return {
       averageGrade: average,
-      highestGrade: Math.min(...gradeValues),
-      lowestGrade: Math.max(...gradeValues),
+      highestGrade: Math.max(...gradeValues),
+      lowestGrade: Math.min(...gradeValues),
       passingRate,
       failedStudents: failingCount,
       totalStudents: students.length,
-      prelimAverage: prelimGrades.length > 0 ? prelimGrades.reduce((a, b) => a + b, 0) / prelimGrades.length : 0,
-      midtermAverage: midtermGrades.length > 0 ? midtermGrades.reduce((a, b) => a + b, 0) / midtermGrades.length : 0,
-      finalAverage: finalGrades.length > 0 ? finalGrades.reduce((a, b) => a + b, 0) / finalGrades.length : 0,
+      prelimAverage:
+        prelimGrades.length > 0 ? prelimGrades.reduce((a, b) => a + b, 0) / prelimGrades.length : 0,
+      midtermAverage:
+        midtermGrades.length > 0
+          ? midtermGrades.reduce((a, b) => a + b, 0) / midtermGrades.length
+          : 0,
+      finalAverage:
+        finalGrades.length > 0 ? finalGrades.reduce((a, b) => a + b, 0) / finalGrades.length : 0,
     };
   }, [grades, students]);
 
@@ -129,14 +136,18 @@ const analytics = useMemo(() => {
                 <BarChart3 className="h-4 w-4 text-accent" />
                 <span className="text-xs text-muted-foreground">Class Average</span>
               </div>
-              <p className="text-2xl font-bold text-foreground">{analytics.averageGrade.toFixed(2)}</p>
+              <p className="text-2xl font-bold text-foreground">
+                {analytics.averageGrade.toFixed(2)}
+              </p>
             </div>
             <div className="rounded-xl border bg-card p-5 shadow-sm">
               <div className="flex items-center gap-2 mb-2">
                 <TrendingUp className="h-4 w-4 text-green-600" />
                 <span className="text-xs text-muted-foreground">Highest Grade</span>
               </div>
-              <p className="text-2xl font-bold text-green-600">{analytics.highestGrade.toFixed(2)}</p>
+              <p className="text-2xl font-bold text-green-600">
+                {analytics.highestGrade.toFixed(2)}
+              </p>
             </div>
             <div className="rounded-xl border bg-card p-5 shadow-sm">
               <div className="flex items-center gap-2 mb-2">
@@ -163,15 +174,21 @@ const analytics = useMemo(() => {
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Prelim Average</span>
-                  <span className="font-medium text-foreground">{analytics.prelimAverage.toFixed(2)}</span>
+                  <span className="font-medium text-foreground">
+                    {analytics.prelimAverage.toFixed(2)}
+                  </span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Midterm Average</span>
-                  <span className="font-medium text-foreground">{analytics.midtermAverage.toFixed(2)}</span>
+                  <span className="font-medium text-foreground">
+                    {analytics.midtermAverage.toFixed(2)}
+                  </span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Final Average</span>
-                  <span className="font-medium text-foreground">{analytics.finalAverage.toFixed(2)}</span>
+                  <span className="font-medium text-foreground">
+                    {analytics.finalAverage.toFixed(2)}
+                  </span>
                 </div>
               </div>
             </div>
@@ -184,14 +201,19 @@ const analytics = useMemo(() => {
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Passing Rate</span>
-                  <span className="font-medium text-green-600">{analytics.passingRate.toFixed(1)}%</span>
+                  <span className="font-medium text-green-600">
+                    {analytics.passingRate.toFixed(1)}%
+                  </span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Failed Students</span>
                   <span className="font-medium text-red-600">{analytics.failedStudents}</span>
                 </div>
                 <div className="w-full bg-muted rounded-full h-2 mt-2">
-                  <div className="bg-green-500 h-2 rounded-full" style={{ width: `${analytics.passingRate}%` }} />
+                  <div
+                    className="bg-green-500 h-2 rounded-full"
+                    style={{ width: `${analytics.passingRate}%` }}
+                  />
                 </div>
               </div>
             </div>

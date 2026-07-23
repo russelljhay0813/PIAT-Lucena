@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Search, Eye, Pencil, Archive } from "lucide-react";
 import { getRegistrations, REGISTRATIONS_EVENT } from "@/lib/registrations-store";
-import { updateStudent } from "@/lib/api";
+import { updateStudent, fetchEnrollments } from "@/lib/api";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/dashboard/registrar/students")({
@@ -12,6 +12,7 @@ export const Route = createFileRoute("/dashboard/registrar/students")({
 
 function RegistrarStudents() {
   const [students, setStudents] = useState<any[]>([]);
+  const [enrollments, setEnrollments] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   const [selectedStudent, setSelectedStudent] = useState<any | null>(null);
   const [editMode, setEditMode] = useState(false);
@@ -26,8 +27,18 @@ function RegistrarStudents() {
     }
   };
 
+  const loadEnrollments = async () => {
+    try {
+      const data = await fetchEnrollments();
+      setEnrollments(data);
+    } catch {
+      setEnrollments([]);
+    }
+  };
+
   useEffect(() => {
     loadStudents();
+    loadEnrollments();
     const onChange = () => loadStudents();
     window.addEventListener(REGISTRATIONS_EVENT, onChange);
     window.addEventListener("storage", onChange);
@@ -45,6 +56,11 @@ function RegistrarStudents() {
       s.program.toLowerCase().includes(q)
     );
   });
+
+  const getEnrollmentStatus = (studentId: string) => {
+    const hasEnrollment = enrollments.some((e) => e.studentId === studentId);
+    return hasEnrollment ? "Enrolled" : "Pending Enrollment";
+  };
 
   const handleView = (student: any) => {
     setSelectedStudent(student);
@@ -89,8 +105,12 @@ function RegistrarStudents() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-heading text-xl font-bold text-foreground">Recently Registered Students</h1>
-        <p className="text-sm text-muted-foreground">Review newly approved registrations and manage enrolled students.</p>
+        <h1 className="font-heading text-xl font-bold text-foreground">
+          Recently Registered Students
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Review newly approved registrations and manage enrolled students.
+        </p>
       </div>
 
       <div className="relative max-w-md">
@@ -112,10 +132,18 @@ function RegistrarStudents() {
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Program</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Year Level</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Semester</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Academic Year</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Registration Date</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Registration Status</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Enrollment Status</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Academic Year
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Registration Date
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Registration Status
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Enrollment Status
+              </th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Actions</th>
             </tr>
           </thead>
@@ -129,12 +157,16 @@ function RegistrarStudents() {
                 className="border-b last:border-0 hover:bg-muted/30 transition-colors"
               >
                 <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{s.studentId}</td>
-                <td className="px-4 py-3 font-medium text-foreground">{s.firstName} {s.lastName}</td>
+                <td className="px-4 py-3 font-medium text-foreground">
+                  {s.firstName} {s.lastName}
+                </td>
                 <td className="px-4 py-3 text-muted-foreground">{s.program}</td>
                 <td className="px-4 py-3 text-muted-foreground">{s.yearLevel || "—"}</td>
                 <td className="px-4 py-3 text-muted-foreground">{s.semester || "—"}</td>
                 <td className="px-4 py-3 text-muted-foreground">{s.academicYear || "—"}</td>
-                <td className="px-4 py-3 text-muted-foreground">{s.submittedAt ? new Date(s.submittedAt).toLocaleDateString() : "—"}</td>
+                <td className="px-4 py-3 text-muted-foreground">
+                  {s.submittedAt ? new Date(s.submittedAt).toLocaleDateString() : "—"}
+                </td>
                 <td className="px-4 py-3">
                   <span className="rounded-full px-2 py-0.5 text-xs font-medium bg-success/10 text-success capitalize">
                     {s.status}
@@ -142,7 +174,7 @@ function RegistrarStudents() {
                 </td>
                 <td className="px-4 py-3">
                   <span className="rounded-full px-2 py-0.5 text-xs font-medium bg-primary/10 text-primary capitalize">
-                    {s.status === "approved" ? "Enrolled" : "Pending"}
+                    {getEnrollmentStatus(s.studentId)}
                   </span>
                 </td>
                 <td className="px-4 py-3">
@@ -181,7 +213,13 @@ function RegistrarStudents() {
       </div>
 
       {(selectedStudent || editMode) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => { setSelectedStudent(null); setEditMode(false); }}>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => {
+            setSelectedStudent(null);
+            setEditMode(false);
+          }}
+        >
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -200,7 +238,12 @@ function RegistrarStudents() {
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground">Full Name</p>
-                    <p className="font-medium text-foreground">{selectedStudent.firstName} {selectedStudent.middleName ? selectedStudent.middleName + ' ' : ''}{selectedStudent.lastName}{selectedStudent.suffix ? ' ' + selectedStudent.suffix : ''}</p>
+                    <p className="font-medium text-foreground">
+                      {selectedStudent.firstName}{" "}
+                      {selectedStudent.middleName ? selectedStudent.middleName + " " : ""}
+                      {selectedStudent.lastName}
+                      {selectedStudent.suffix ? " " + selectedStudent.suffix : ""}
+                    </p>
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground">Email</p>
@@ -241,7 +284,9 @@ function RegistrarStudents() {
                         <input
                           className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
                           value={editForm.contactNumber}
-                          onChange={(e) => setEditForm({ ...editForm, contactNumber: e.target.value })}
+                          onChange={(e) =>
+                            setEditForm({ ...editForm, contactNumber: e.target.value })
+                          }
                         />
                       </div>
                       <div className="col-span-2">
@@ -261,15 +306,21 @@ function RegistrarStudents() {
                       </div>
                       <div>
                         <p className="text-xs text-muted-foreground">Year Level</p>
-                        <p className="font-medium text-foreground">{selectedStudent.yearLevel || "—"}</p>
+                        <p className="font-medium text-foreground">
+                          {selectedStudent.yearLevel || "—"}
+                        </p>
                       </div>
                       <div>
                         <p className="text-xs text-muted-foreground">Semester</p>
-                        <p className="font-medium text-foreground">{selectedStudent.semester || "—"}</p>
+                        <p className="font-medium text-foreground">
+                          {selectedStudent.semester || "—"}
+                        </p>
                       </div>
                       <div>
                         <p className="text-xs text-muted-foreground">Address</p>
-                        <p className="font-medium text-foreground">{selectedStudent.address || "—"}</p>
+                        <p className="font-medium text-foreground">
+                          {selectedStudent.address || "—"}
+                        </p>
                       </div>
                     </>
                   )}
@@ -278,7 +329,10 @@ function RegistrarStudents() {
             )}
             <div className="mt-6 flex justify-end gap-2">
               <button
-                onClick={() => { setSelectedStudent(null); setEditMode(false); }}
+                onClick={() => {
+                  setSelectedStudent(null);
+                  setEditMode(false);
+                }}
                 className="rounded-lg border px-4 py-2 text-sm text-foreground hover:bg-muted"
               >
                 Close

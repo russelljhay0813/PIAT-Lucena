@@ -34,7 +34,11 @@ function RegistrarSubjects() {
   const subjects = useSubjects();
   const [facultyUsers, setFacultyUsers] = useState<UserAccount[]>([]);
   const [programs, setPrograms] = useState<string[]>([]);
-  const [academicStructure, setAcademicStructure] = useState<AcademicStructure>({ academicYears: [], yearLevels: [], semesters: [] });
+  const [academicStructure, setAcademicStructure] = useState<AcademicStructure>({
+    academicYears: [],
+    yearLevels: [],
+    semesters: [],
+  });
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [programFilter, setProgramFilter] = useState("All");
   const [yearFilter, setYearFilter] = useState("All");
@@ -55,9 +59,7 @@ function RegistrarSubjects() {
   const yearLevels = academicStructure.yearLevels.length
     ? academicStructure.yearLevels
     : YEAR_LEVELS;
-  const semesters = academicStructure.semesters.length
-    ? academicStructure.semesters
-    : SEMESTERS;
+  const semesters = academicStructure.semesters.length ? academicStructure.semesters : SEMESTERS;
 
   useEffect(() => {
     const loadFaculty = async () => {
@@ -66,7 +68,10 @@ function RegistrarSubjects() {
     };
     const loadPrograms = async () => {
       try {
-        const [programData, structureData] = await Promise.all([fetchPrograms(), fetchAcademicStructure()]);
+        const [programData, structureData] = await Promise.all([
+          fetchPrograms(),
+          fetchAcademicStructure(),
+        ]);
         setPrograms(programData);
         setAcademicStructure(structureData);
       } catch {
@@ -105,7 +110,9 @@ function RegistrarSubjects() {
 
   const filteredFaculty = facultyUsers.filter((f) => {
     const q = facultySearch.toLowerCase();
-    return `${f.firstName} ${f.lastName}`.toLowerCase().includes(q) || f.email.toLowerCase().includes(q);
+    return (
+      `${f.firstName} ${f.lastName}`.toLowerCase().includes(q) || f.email.toLowerCase().includes(q)
+    );
   });
 
   const handleCreateSubject = async () => {
@@ -214,7 +221,9 @@ function RegistrarSubjects() {
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Units</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Schedule</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Room</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Assigned Faculty</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Assigned Faculty
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -226,7 +235,9 @@ function RegistrarSubjects() {
                 transition={{ delay: i * 0.04 }}
                 className="border-b last:border-0 hover:bg-muted/30 transition-colors"
               >
-                <td className="px-4 py-3 font-mono text-xs text-foreground font-medium">{s.code}</td>
+                <td className="px-4 py-3 font-mono text-xs text-foreground font-medium">
+                  {s.code}
+                </td>
                 <td className="px-4 py-3 text-foreground">{s.title}</td>
                 <td className="px-4 py-3 text-muted-foreground">{s.program || "—"}</td>
                 <td className="px-4 py-3 text-muted-foreground">{s.yearLevel || "—"}</td>

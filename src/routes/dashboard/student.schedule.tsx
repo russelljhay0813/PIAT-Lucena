@@ -10,12 +10,25 @@ export const Route = createFileRoute("/dashboard/student/schedule")({
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 const DAY_KEYS: Record<string, (typeof DAYS)[number]> = {
-  M: "Mon", MON: "Mon", MONDAY: "Mon",
-  T: "Tue", TU: "Tue", TUE: "Tue", TUESDAY: "Tue",
-  W: "Wed", WED: "Wed", WEDNESDAY: "Wed",
-  TH: "Thu", THU: "Thu", THURSDAY: "Thu",
-  F: "Fri", FRI: "Fri", FRIDAY: "Fri",
-  S: "Sat", SAT: "Sat", SATURDAY: "Sat",
+  M: "Mon",
+  MON: "Mon",
+  MONDAY: "Mon",
+  T: "Tue",
+  TU: "Tue",
+  TUE: "Tue",
+  TUESDAY: "Tue",
+  W: "Wed",
+  WED: "Wed",
+  WEDNESDAY: "Wed",
+  TH: "Thu",
+  THU: "Thu",
+  THURSDAY: "Thu",
+  F: "Fri",
+  FRI: "Fri",
+  FRIDAY: "Fri",
+  S: "Sat",
+  SAT: "Sat",
+  SATURDAY: "Sat",
 };
 
 function parseDays(schedule: string): (typeof DAYS)[number][] {
@@ -57,7 +70,12 @@ function StudentSchedule() {
   const subjects = useEnrolledSubjects(user?.studentId ?? "");
 
   const byDay: Record<(typeof DAYS)[number], Subject[]> = {
-    Mon: [], Tue: [], Wed: [], Thu: [], Fri: [], Sat: [],
+    Mon: [],
+    Tue: [],
+    Wed: [],
+    Thu: [],
+    Fri: [],
+    Sat: [],
   };
   subjects.forEach((s) => {
     const days = parseDays(s.schedule);
@@ -115,9 +133,7 @@ function StudentSchedule() {
               <div className="mb-3 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <CalendarDays className="h-4 w-4 text-accent" />
-                  <h2 className="font-heading text-sm font-semibold text-card-foreground">
-                    {day}
-                  </h2>
+                  <h2 className="font-heading text-sm font-semibold text-card-foreground">{day}</h2>
                 </div>
                 <span className="text-[10px] font-medium text-muted-foreground">
                   {byDay[day].length} {byDay[day].length === 1 ? "class" : "classes"}
@@ -139,9 +155,7 @@ function StudentSchedule() {
                         <span className="font-heading text-xs font-bold text-foreground">
                           {s.code}
                         </span>
-                        <span className="text-[10px] text-muted-foreground">
-                          {s.units}u
-                        </span>
+                        <span className="text-[10px] text-muted-foreground">{s.units}u</span>
                       </div>
                       <p className="mt-0.5 truncate text-xs text-foreground">{s.title}</p>
                       <div className="mt-1 flex items-center gap-3 text-[10px] text-muted-foreground">

@@ -9,13 +9,15 @@ export function buildAttendanceRecordPayload({
   time,
   section,
 }) {
-  const studentName = student ? `${student.lastName ?? ''}, ${student.firstName ?? ''}`.trim() : String(studentId);
-  const subjectCode = subject?.code ?? '';
-  const subjectTitle = subject?.title ?? '';
-  const program = subject?.program ?? student?.program ?? '';
-  const yearLevel = subject?.yearLevel ?? student?.yearLevel ?? '';
-  const academicYear = subject?.academicYear ?? '';
-  const semester = subject?.semester ?? '';
+  const studentName = student
+    ? `${student.lastName ?? ""}, ${student.firstName ?? ""}`.trim()
+    : String(studentId);
+  const subjectCode = subject?.code ?? "";
+  const subjectTitle = subject?.title ?? "";
+  const program = subject?.program ?? student?.program ?? "";
+  const yearLevel = subject?.yearLevel ?? student?.yearLevel ?? "";
+  const academicYear = subject?.academicYear ?? "";
+  const semester = subject?.semester ?? "";
 
   return {
     id: crypto.randomUUID(),
@@ -31,7 +33,7 @@ export function buildAttendanceRecordPayload({
     semester,
     program,
     yearLevel,
-    section: section ? String(section) : '',
+    section: section ? String(section) : "",
     status: String(status),
     updatedAt: Date.now(),
   };

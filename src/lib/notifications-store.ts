@@ -90,12 +90,9 @@ export function useNotifications(userId: string | undefined) {
     return () => window.removeEventListener(EVENT, handleUpdate);
   }, [refresh]);
 
-  const markAsRead = useCallback(
-    async (notificationId: string) => {
-      await markNotificationAsRead(notificationId);
-    },
-    [],
-  );
+  const markAsRead = useCallback(async (notificationId: string) => {
+    await markNotificationAsRead(notificationId);
+  }, []);
 
   const clearAll = useCallback(async () => {
     if (!userId) return;

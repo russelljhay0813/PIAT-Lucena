@@ -1,14 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  Megaphone,
-  Plus,
-  X,
-  Search,
-  Calendar as CalendarIcon,
-  Send,
-} from "lucide-react";
+import { Megaphone, Plus, X, Search, Calendar as CalendarIcon, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
 import { fetchSubjects, type Subject } from "@/lib/api";
@@ -60,7 +53,9 @@ function FacultyAnnouncements() {
   useEffect(() => {
     const loadAnnouncements = async () => {
       try {
-        const res = await fetch(`${import.meta.env.VITE_API_BASE ?? ""}/api/announcements`).then((r) => r.json());
+        const res = await fetch(`${import.meta.env.VITE_API_BASE ?? ""}/api/announcements`).then(
+          (r) => r.json(),
+        );
         setAnnouncements(res);
       } catch {
         setAnnouncements([]);
@@ -78,7 +73,7 @@ function FacultyAnnouncements() {
 
   const handleSubmit = async () => {
     if (!title.trim() || !body.trim() || !user) return;
-    
+
     const newAnnouncement: Announcement = {
       id: `a-${Date.now()}`,
       title: title.trim(),
@@ -99,23 +94,20 @@ function FacultyAnnouncements() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newAnnouncement),
       }).then((r) => r.json());
-      
+
       setAnnouncements((prev) => [newAnnouncement, ...prev]);
       setTitle("");
       setBody("");
       setSelectedSubjectId("");
       setShowForm(false);
-    } catch {
-    }
+    } catch {}
   };
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="font-heading text-xl font-bold text-foreground">
-            Announcements
-          </h1>
+          <h1 className="font-heading text-xl font-bold text-foreground">Announcements</h1>
           <p className="text-sm text-muted-foreground">
             Post announcements for your assigned classes
           </p>
@@ -168,7 +160,10 @@ function FacultyAnnouncements() {
 
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
-                    <label htmlFor="announcement-category" className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                    <label
+                      htmlFor="announcement-category"
+                      className="mb-1 block text-[11px] font-medium text-muted-foreground"
+                    >
                       Category
                     </label>
                     <select
@@ -185,7 +180,10 @@ function FacultyAnnouncements() {
                   </div>
 
                   <div>
-                    <label htmlFor="announcement-subject" className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                    <label
+                      htmlFor="announcement-subject"
+                      className="mb-1 block text-[11px] font-medium text-muted-foreground"
+                    >
                       Subject (Optional)
                     </label>
                     <select
@@ -246,13 +244,7 @@ function FacultyAnnouncements() {
   );
 }
 
-function AnnouncementCard({
-  a,
-  index,
-}: {
-  a: Announcement;
-  index: number;
-}) {
+function AnnouncementCard({ a, index }: { a: Announcement; index: number }) {
   return (
     <motion.article
       initial={{ opacity: 0, y: 8 }}
@@ -274,9 +266,7 @@ function AnnouncementCard({
             <h3 className="mt-1.5 font-heading text-base font-semibold text-card-foreground">
               {a.title}
             </h3>
-            <p className="mt-1.5 whitespace-pre-wrap text-sm text-foreground/80">
-              {a.body}
-            </p>
+            <p className="mt-1.5 whitespace-pre-wrap text-sm text-foreground/80">{a.body}</p>
             <p className="mt-3 text-[11px] text-muted-foreground">
               Posted by <span className="font-medium text-foreground">{a.authorName}</span>
               <span> · {a.datePosted}</span>

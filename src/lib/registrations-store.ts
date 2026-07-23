@@ -12,7 +12,13 @@ import {
 } from "./api";
 import { YEAR_LEVELS, SEMESTERS } from "@/lib/subjects-store";
 
-export type RegistrationStatus = "not_started" | "in_progress" | "submitted" | "under_review" | "approved" | "rejected";
+export type RegistrationStatus =
+  | "not_started"
+  | "in_progress"
+  | "submitted"
+  | "under_review"
+  | "approved"
+  | "rejected";
 
 export interface StudentRegistration extends ApiStudentRegistration {}
 
@@ -35,7 +41,10 @@ export async function getApprovedStudents(): Promise<StudentRegistration[]> {
   return fetchStudents("approved");
 }
 
-export async function findApprovedByEmail(email: string, password: string): Promise<StudentRegistration | null> {
+export async function findApprovedByEmail(
+  email: string,
+  password: string,
+): Promise<StudentRegistration | null> {
   try {
     const student = await loginStudent(email, password);
     return student.status === "approved" ? student : null;
@@ -45,9 +54,14 @@ export async function findApprovedByEmail(email: string, password: string): Prom
 }
 
 export async function emailExists(email: string): Promise<boolean> {
-  const all = await getRegistrations();
-  const normalized = email.trim().toLowerCase();
-  return all.some((r) => r.email.toLowerCase() === normalized);
+  try {
+    const response = await fetch(`/api/email-exists?email=${encodeURIComponent(email)}`);
+    if (!response.ok) return false;
+    const data = await response.json();
+    return Boolean(data.exists);
+  } catch {
+    return false;
+  }
 }
 
 export async function submitRegistration(
@@ -64,31 +78,30 @@ export async function approveRegistration(id: string, note?: string) {
   const all = await getRegistrations();
   const reg = all.find((r) => r.id === id);
   if (!reg) return;
-  
+
   await updateStudent(reg.studentId, {
     status: "approved",
     reviewedAt: new Date().toISOString(),
     reviewNote: note,
   });
-  
+
   const studentYearLevel = reg.yearLevel || YEAR_LEVELS[0];
   const studentSemester = reg.semester || SEMESTERS[0];
-  const studentAcademicYear = reg.academicYear || `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`;
-  
+  const studentAcademicYear =
+    reg.academicYear || `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`;
+
   try {
     const [curriculumItems, allSubjects] = await Promise.all([
       fetchCurriculum(undefined, reg.program),
       fetchSubjects(),
     ]);
-    
+
     const programSubjects = curriculumItems
       .filter((c) => c.yearLevel === studentYearLevel && c.semester === studentSemester)
       .map((c) => c.subjectCode);
-    
-    const subjectIds = allSubjects
-      .filter((s) => programSubjects.includes(s.code))
-      .map((s) => s.id);
-    
+
+    const subjectIds = allSubjects.filter((s) => programSubjects.includes(s.code)).map((s) => s.id);
+
     if (subjectIds.length > 0) {
       await createEnrollments({
         studentId: reg.studentId,
@@ -100,7 +113,7 @@ export async function approveRegistration(id: string, note?: string) {
   } catch {
     // Enrollment auto-creation failed, but registration is still approved
   }
-  
+
   broadcastUpdate();
 }
 

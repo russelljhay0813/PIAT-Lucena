@@ -4,7 +4,18 @@ import { BookOpen, Users, CheckCircle, Calendar, BarChart3, Megaphone, Clock } f
 import { motion } from "framer-motion";
 import { useAuth } from "@/lib/auth-context";
 import { useMemo, useEffect, useState, useCallback } from "react";
-import { fetchSubjects, type Subject, fetchEnrollments, type StudentEnrollment, fetchGrades, fetchAttendanceRecords, fetchNotifications, type NotificationItem, fetchAnnouncements } from "@/lib/api";
+import {
+  fetchSubjects,
+  type Subject,
+  fetchEnrollments,
+  type StudentEnrollment,
+  fetchGrades,
+  fetchAttendanceRecords,
+  fetchNotifications,
+  type NotificationItem,
+  fetchAnnouncements,
+} from "@/lib/api";
+import { SEMESTERS } from "@/lib/subjects-store";
 
 export const Route = createFileRoute("/dashboard/faculty/")({
   component: FacultyDashboard,
@@ -52,28 +63,31 @@ function FacultyDashboard() {
   const [currentAcademicYear, setCurrentAcademicYear] = useState("—");
 
   const today = new Date().toISOString().slice(0, 10);
-  const todayToken = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"][new Date().getDay()];
-  const todayAliases: Record<string, string[]> = {
-    MON: ["M", "MW", "MWF", "MTH", "MON"],
-    TUE: ["T", "TTH", "TF", "TUE"],
-    WED: ["W", "MW", "MWF", "WF", "WED"],
-    THU: ["TH", "TTH", "MTH", "THU"],
-    FRI: ["F", "MWF", "TF", "WF", "FRI"],
-    SAT: ["S", "SAT"],
-    SUN: ["SUN"],
-  };
-  const aliases = todayAliases[todayToken] ?? [];
+  const aliases = useMemo(() => {
+    const todayToken = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"][new Date().getDay()];
+    const todayAliases: Record<string, string[]> = {
+      MON: ["M", "MW", "MWF", "MTH", "MON", "MONDAY"],
+      TUE: ["T", "TTH", "TF", "TUE", "TUESDAY"],
+      WED: ["W", "MW", "MWF", "WF", "WED", "WEDNESDAY"],
+      THU: ["TH", "TTH", "MTH", "THU", "THURSDAY"],
+      FRI: ["F", "MWF", "TF", "WF", "FRI", "FRIDAY"],
+      SAT: ["S", "SAT", "SATURDAY"],
+      SUN: ["SUN", "SUNDAY"],
+    };
+    return todayAliases[todayToken] ?? [];
+  }, []);
 
   const loadFacultyData = useCallback(async () => {
     if (!user?.id) return;
     try {
-      const [allSubjects, allEnrollments, allGrades, notificationData, announcementData] = await Promise.all([
-        fetchSubjects(),
-        fetchEnrollments(),
-        fetchGrades(),
-        fetchNotifications(user.id),
-        fetchAnnouncements(),
-      ]);
+      const [allSubjects, allEnrollments, allGrades, notificationData, announcementData] =
+        await Promise.all([
+          fetchSubjects(),
+          fetchEnrollments(),
+          fetchGrades(),
+          fetchNotifications(user.id),
+          fetchAnnouncements(),
+        ]);
       const facultyOnly = allSubjects.filter((s) => s.facultyId === user.id);
       const subjectIds = facultyOnly.map((s) => s.id);
       setFacultySubjects(facultyOnly);
@@ -85,7 +99,8 @@ function FacultyDashboard() {
           .slice(0, 5)
           .map((g) => ({
             studentId: g.studentId,
-            studentName: `${g.studentFirstName || ""} ${g.studentLastName || ""}`.trim() || g.studentId,
+            studentName:
+              `${g.studentFirstName || ""} ${g.studentLastName || ""}`.trim() || g.studentId,
             subjectCode: g.subjectCode || "",
             subjectTitle: g.subjectTitle || "",
             grade: g.grade,
@@ -93,9 +108,20 @@ function FacultyDashboard() {
             createdAt: g.submittedAt,
           })),
       );
-      setPendingGradesCount(allGrades.filter((g) => subjectIds.includes(g.subjectId) && g.status === "draft").length);
-      setCompletedGradesCount(allGrades.filter((g) => subjectIds.includes(g.subjectId) && (g.status === "submitted" || g.status === "finalized")).length);
-      setCurrentSemester(user.semester || facultyOnly[0]?.semester || "—");
+      setPendingGradesCount(
+        allGrades.filter((g) => subjectIds.includes(g.subjectId) && g.status === "draft").length,
+      );
+      setCompletedGradesCount(
+        allGrades.filter(
+          (g) =>
+            subjectIds.includes(g.subjectId) &&
+            (g.status === "submitted" || g.status === "finalized"),
+        ).length,
+      );
+      const now = new Date();
+      const currentMonth = now.getMonth();
+      const computedSemester = currentMonth >= 6 ? SEMESTERS[0] : SEMESTERS[1];
+      setCurrentSemester(user.semester || facultyOnly[0]?.semester || computedSemester);
       setCurrentAcademicYear(user.academicYear || facultyOnly[0]?.academicYear || "—");
       setNotifications(notificationData.slice(0, 5));
       setRecentAnnouncements(
@@ -246,7 +272,9 @@ function FacultyDashboard() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-3xl font-bold text-foreground">{pendingGradesCount}</p>
-              <p className="text-xs text-muted-foreground mt-1">Draft grades requiring finalization</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Draft grades requiring finalization
+              </p>
             </div>
             <div className="h-12 w-12 rounded-lg bg-muted/50 flex items-center justify-center">
               <BarChart3 className="h-6 w-6 text-muted-foreground" />
@@ -319,7 +347,10 @@ function FacultyDashboard() {
           ) : (
             <div className="space-y-2">
               {notifications.map((notification) => (
-                <div key={notification.id} className="rounded-lg border border-border/60 bg-muted/30 p-3 text-xs">
+                <div
+                  key={notification.id}
+                  className="rounded-lg border border-border/60 bg-muted/30 p-3 text-xs"
+                >
                   <p className="font-medium text-foreground">{notification.title}</p>
                   <p className="mt-1 text-muted-foreground">{notification.message}</p>
                 </div>

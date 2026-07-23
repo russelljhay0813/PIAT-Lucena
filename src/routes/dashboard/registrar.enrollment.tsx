@@ -2,8 +2,17 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { Search, CheckCircle, Clock, XCircle, BookPlus, Eye, X } from "lucide-react";
 import { motion } from "framer-motion";
-import { getApprovedStudents, REGISTRATIONS_EVENT, type StudentRegistration } from "@/lib/registrations-store";
-import { fetchAcademicStructure, type AcademicStructure, fetchUsers, type UserAccount } from "@/lib/api";
+import {
+  getApprovedStudents,
+  REGISTRATIONS_EVENT,
+  type StudentRegistration,
+} from "@/lib/registrations-store";
+import {
+  fetchAcademicStructure,
+  type AcademicStructure,
+  fetchUsers,
+  type UserAccount,
+} from "@/lib/api";
 import { useSubjects, getCurriculumSubjects, YEAR_LEVELS, SEMESTERS } from "@/lib/subjects-store";
 import { enrollStudent, type StudentEnrollment, ENROLLMENT_EVENT } from "@/lib/enrollment-store";
 import { fetchEnrollments } from "@/lib/api";
@@ -34,7 +43,11 @@ function RegistrarEnrollment() {
   const [yearFilter, setYearFilter] = useState("All");
   const [showEnrollModal, setShowEnrollModal] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<StudentRegistration | null>(null);
-  const [academicStructure, setAcademicStructure] = useState<AcademicStructure>({ academicYears: [], yearLevels: [], semesters: [] });
+  const [academicStructure, setAcademicStructure] = useState<AcademicStructure>({
+    academicYears: [],
+    yearLevels: [],
+    semesters: [],
+  });
   const [selectedYearLevel, setSelectedYearLevel] = useState("");
   const [selectedSemester, setSelectedSemester] = useState("");
   const [selectedAcademicYear, setSelectedAcademicYear] = useState("");
@@ -77,7 +90,9 @@ function RegistrarEnrollment() {
       .catch(() => setAcademicStructure({ academicYears: [], yearLevels: [], semesters: [] }));
   }, []);
 
-  const yearLevels = academicStructure.yearLevels.length ? academicStructure.yearLevels : YEAR_LEVELS;
+  const yearLevels = academicStructure.yearLevels.length
+    ? academicStructure.yearLevels
+    : YEAR_LEVELS;
   const semesters = academicStructure.semesters.length ? academicStructure.semesters : SEMESTERS;
 
   useEffect(() => {
@@ -90,7 +105,14 @@ function RegistrarEnrollment() {
     if (academicStructure.academicYears.length && !selectedAcademicYear) {
       setSelectedAcademicYear(academicStructure.academicYears[0]);
     }
-  }, [academicStructure.academicYears.length, yearLevels, semesters, selectedYearLevel, selectedSemester, selectedAcademicYear]);
+  }, [
+    academicStructure.academicYears.length,
+    yearLevels,
+    semesters,
+    selectedYearLevel,
+    selectedSemester,
+    selectedAcademicYear,
+  ]);
 
   useEffect(() => {
     const loadEnrollments = async () => {
@@ -140,16 +162,39 @@ function RegistrarEnrollment() {
     const matchingSubjects = subjects.filter((s) =>
       curriculumSubjects.some((c) => c.code === s.code && s.program === selectedStudent.program),
     );
-    const existingSubjectIds = matchingSubjects.map((s) => s.id);
+    let existingSubjectIds = matchingSubjects.map((s) => s.id);
 
     if (existingSubjectIds.length === 0) {
-      // Fallback: try to create subjects from curriculum if none matched existing offerings
-      // For now, require subject offerings to exist
       toast.error("No matching subject offerings found for this curriculum");
       return;
     }
 
-    await enrollStudent(selectedStudent.studentId, existingSubjectIds, selectedAcademicYear, selectedSemester);
+    const alreadyEnrolled = existingSubjectIds.filter((id) =>
+      enrollments.some(
+        (e) =>
+          e.studentId === selectedStudent.studentId &&
+          e.subjectId === id &&
+          e.status === "enrolled",
+      ),
+    );
+
+    if (alreadyEnrolled.length > 0) {
+      toast.warning(
+        `${selectedStudent.firstName} is already enrolled in ${alreadyEnrolled.length} subject(s). Skipping duplicates.`,
+      );
+      existingSubjectIds = existingSubjectIds.filter((id) => !alreadyEnrolled.includes(id));
+      if (existingSubjectIds.length === 0) {
+        toast.error("All selected subjects are already enrolled.");
+        return;
+      }
+    }
+
+    await enrollStudent(
+      selectedStudent.studentId,
+      existingSubjectIds,
+      selectedAcademicYear,
+      selectedSemester,
+    );
     toast.success(`Enrolled ${selectedStudent.firstName} in ${existingSubjectIds.length} subjects`);
     setShowEnrollModal(false);
   };
@@ -159,7 +204,9 @@ function RegistrarEnrollment() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="font-heading text-xl font-bold text-foreground">Enrollment Management</h1>
-          <p className="text-sm text-muted-foreground">Manage student enrollments by program and year level</p>
+          <p className="text-sm text-muted-foreground">
+            Manage student enrollments by program and year level
+          </p>
         </div>
       </div>
 
@@ -173,7 +220,14 @@ function RegistrarEnrollment() {
         <div className="rounded-xl border bg-card p-4 shadow-sm">
           <p className="text-xs text-muted-foreground">Enrolled This Term</p>
           <p className="mt-1 font-heading text-2xl font-bold text-foreground">
-            {enrollments.filter((e) => e.status === "enrolled").length}
+            {
+              enrollments.filter((e) => {
+                if (e.status !== "enrolled") return false;
+                if (selectedAcademicYear && e.academicYear !== selectedAcademicYear) return false;
+                if (selectedSemester && e.semester !== selectedSemester) return false;
+                return true;
+              }).length
+            }
           </p>
         </div>
         <div className="rounded-xl border bg-card p-4 shadow-sm">
@@ -182,7 +236,9 @@ function RegistrarEnrollment() {
         </div>
         <div className="rounded-xl border bg-card p-4 shadow-sm">
           <p className="text-xs text-muted-foreground">Faculty Available</p>
-          <p className="mt-1 font-heading text-2xl font-bold text-foreground">{facultyUsers.length}</p>
+          <p className="mt-1 font-heading text-2xl font-bold text-foreground">
+            {facultyUsers.length}
+          </p>
         </div>
       </div>
 
@@ -232,13 +288,17 @@ function RegistrarEnrollment() {
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Name</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Program</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Year Level</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Enrolled Subjects</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Enrolled Subjects
+              </th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Actions</th>
             </tr>
           </thead>
           <tbody>
             {filteredStudents.map((s, i) => {
-              const studentEnrollments = enrollments.filter((e) => e.studentId === s.studentId && e.status === "enrolled");
+              const studentEnrollments = enrollments.filter(
+                (e) => e.studentId === s.studentId && e.status === "enrolled",
+              );
               return (
                 <motion.tr
                   key={s.id}
@@ -247,31 +307,40 @@ function RegistrarEnrollment() {
                   transition={{ delay: i * 0.02 }}
                   className="border-b last:border-0 hover:bg-muted/30 transition-colors"
                 >
-                <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{s.studentId}</td>
-                <td className="px-4 py-3 font-medium text-foreground">{s.firstName} {s.lastName}</td>
-                <td className="px-4 py-3 text-muted-foreground">{s.program}</td>
-                <td className="px-4 py-3 text-muted-foreground">{s.yearLevel}</td>
-                <td className="px-4 py-3">
-                  <span className="rounded-full bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent">
-                    {enrollments.filter((e) => e.studentId === s.studentId && e.status === "enrolled").length} subjects
-                  </span>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setSelectedStudent(s)}
-                      className="rounded-lg border px-2 py-1 text-xs font-medium text-foreground hover:bg-muted"
-                    >
-                      <Eye className="h-3.5 w-3.5 inline mr-1" /> View
-                    </button>
-                    <button
-                      onClick={() => handleOpenEnroll(s)}
-                      className="rounded-lg bg-primary px-2 py-1 text-xs font-medium text-primary-foreground hover:opacity-90"
-                    >
-                      <BookPlus className="h-3.5 w-3.5 inline mr-1" /> Enroll
-                    </button>
-                  </div>
-                </td>
+                  <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
+                    {s.studentId}
+                  </td>
+                  <td className="px-4 py-3 font-medium text-foreground">
+                    {s.firstName} {s.lastName}
+                  </td>
+                  <td className="px-4 py-3 text-muted-foreground">{s.program}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{s.yearLevel}</td>
+                  <td className="px-4 py-3">
+                    <span className="rounded-full bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent">
+                      {
+                        enrollments.filter(
+                          (e) => e.studentId === s.studentId && e.status === "enrolled",
+                        ).length
+                      }{" "}
+                      subjects
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setSelectedStudent(s)}
+                        className="rounded-lg border px-2 py-1 text-xs font-medium text-foreground hover:bg-muted"
+                      >
+                        <Eye className="h-3.5 w-3.5 inline mr-1" /> View
+                      </button>
+                      <button
+                        onClick={() => handleOpenEnroll(s)}
+                        className="rounded-lg bg-primary px-2 py-1 text-xs font-medium text-primary-foreground hover:opacity-90"
+                      >
+                        <BookPlus className="h-3.5 w-3.5 inline mr-1" /> Enroll
+                      </button>
+                    </div>
+                  </td>
                 </motion.tr>
               );
             })}
@@ -288,7 +357,10 @@ function RegistrarEnrollment() {
 
       {/* View Enrolled Subjects Modal */}
       {selectedStudent && !showEnrollModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setSelectedStudent(null)}>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => setSelectedStudent(null)}
+        >
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -297,26 +369,43 @@ function RegistrarEnrollment() {
           >
             <div className="flex items-center justify-between">
               <h2 className="font-heading text-lg font-bold text-foreground">Enrolled Subjects</h2>
-              <button onClick={() => setSelectedStudent(null)} className="text-muted-foreground hover:text-foreground" aria-label="Close enrolled subjects dialog">
+              <button
+                onClick={() => setSelectedStudent(null)}
+                className="text-muted-foreground hover:text-foreground"
+                aria-label="Close enrolled subjects dialog"
+              >
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <p className="text-sm text-muted-foreground mt-1">{selectedStudent.firstName} {selectedStudent.lastName}</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              {selectedStudent.firstName} {selectedStudent.lastName}
+            </p>
             <div className="mt-4 space-y-2 max-h-60 overflow-y-auto">
-              {enrollments.filter((e) => e.studentId === selectedStudent.studentId && e.status === "enrolled").map((e) => {
-                const subj = subjects.find((s) => s.id === e.subjectId);
-                return (
-                  <div key={e.id} className="rounded-lg bg-muted/50 px-3 py-2 flex justify-between items-center">
-                    <div>
-                      <p className="text-sm font-medium text-foreground">{subj?.code || "—"}</p>
-                      <p className="text-xs text-muted-foreground">{subj?.title || "Unknown Subject"}</p>
+              {enrollments
+                .filter((e) => e.studentId === selectedStudent.studentId && e.status === "enrolled")
+                .map((e) => {
+                  const subj = subjects.find((s) => s.id === e.subjectId);
+                  return (
+                    <div
+                      key={e.id}
+                      className="rounded-lg bg-muted/50 px-3 py-2 flex justify-between items-center"
+                    >
+                      <div>
+                        <p className="text-sm font-medium text-foreground">{subj?.code || "—"}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {subj?.title || "Unknown Subject"}
+                        </p>
+                      </div>
+                      <span className="text-xs text-muted-foreground">{e.semester}</span>
                     </div>
-                    <span className="text-xs text-muted-foreground">{e.semester}</span>
-                  </div>
-                );
-              })}
-              {enrollments.filter((e) => e.studentId === selectedStudent.studentId && e.status === "enrolled").length === 0 && (
-                <p className="text-sm text-muted-foreground text-center py-4">No enrolled subjects</p>
+                  );
+                })}
+              {enrollments.filter(
+                (e) => e.studentId === selectedStudent.studentId && e.status === "enrolled",
+              ).length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  No enrolled subjects
+                </p>
               )}
             </div>
           </motion.div>
@@ -325,7 +414,10 @@ function RegistrarEnrollment() {
 
       {/* Enroll Modal */}
       {showEnrollModal && selectedStudent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowEnrollModal(false)}>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => setShowEnrollModal(false)}
+        >
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -345,12 +437,17 @@ function RegistrarEnrollment() {
                   <label className="text-xs font-medium text-muted-foreground">Year Level</label>
                   <select
                     value={selectedYearLevel}
-                    onChange={(e) => { setSelectedYearLevel(e.target.value); loadCurriculumForStudent(selectedStudent); }}
+                    onChange={(e) => {
+                      setSelectedYearLevel(e.target.value);
+                      loadCurriculumForStudent(selectedStudent);
+                    }}
                     className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
                     aria-label="Select year level"
                   >
                     {yearLevels.map((y) => (
-                      <option key={y} value={y}>{y}</option>
+                      <option key={y} value={y}>
+                        {y}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -358,12 +455,17 @@ function RegistrarEnrollment() {
                   <label className="text-xs font-medium text-muted-foreground">Semester</label>
                   <select
                     value={selectedSemester}
-                    onChange={(e) => { setSelectedSemester(e.target.value); loadCurriculumForStudent(selectedStudent); }}
+                    onChange={(e) => {
+                      setSelectedSemester(e.target.value);
+                      loadCurriculumForStudent(selectedStudent);
+                    }}
                     className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
                     aria-label="Select semester"
                   >
                     {semesters.map((s) => (
-                      <option key={s} value={s}>{s}</option>
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -381,7 +483,10 @@ function RegistrarEnrollment() {
                 <p className="text-xs font-medium text-foreground mb-2">Curriculum Subjects:</p>
                 <div className="flex flex-wrap gap-1">
                   {curriculumSubjects.map((s) => (
-                    <span key={s.code} className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                    <span
+                      key={s.code}
+                      className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+                    >
                       {s.code}
                     </span>
                   ))}
@@ -391,14 +496,31 @@ function RegistrarEnrollment() {
                 </div>
               </div>
               <div className="rounded-lg bg-muted/50 p-3">
-                <p className="text-xs font-medium text-foreground mb-2">Available Subject Offerings:</p>
+                <p className="text-xs font-medium text-foreground mb-2">
+                  Available Subject Offerings:
+                </p>
                 <div className="flex flex-wrap gap-1">
-                  {subjects.filter((s) => s.program === selectedStudent.program && s.yearLevel === selectedYearLevel && s.semester === selectedSemester).map((s) => (
-                    <span key={s.id} className="rounded-full bg-success/10 px-2 py-0.5 text-xs text-success">
-                      {s.code}
-                    </span>
-                  ))}
-                  {subjects.filter((s) => s.program === selectedStudent.program && s.yearLevel === selectedYearLevel && s.semester === selectedSemester).length === 0 && (
+                  {subjects
+                    .filter(
+                      (s) =>
+                        s.program === selectedStudent.program &&
+                        s.yearLevel === selectedYearLevel &&
+                        s.semester === selectedSemester,
+                    )
+                    .map((s) => (
+                      <span
+                        key={s.id}
+                        className="rounded-full bg-success/10 px-2 py-0.5 text-xs text-success"
+                      >
+                        {s.code}
+                      </span>
+                    ))}
+                  {subjects.filter(
+                    (s) =>
+                      s.program === selectedStudent.program &&
+                      s.yearLevel === selectedYearLevel &&
+                      s.semester === selectedSemester,
+                  ).length === 0 && (
                     <span className="text-xs text-muted-foreground">No offerings created yet</span>
                   )}
                 </div>

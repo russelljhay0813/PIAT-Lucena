@@ -72,7 +72,17 @@ export async function initDb() {
 export async function upsertFaculty(faculty: Record<string, string | null>) {
   await db.runAsync(
     `INSERT OR REPLACE INTO faculty (id, email, firstName, lastName, role, program, yearLevel, semester, academicYear) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [faculty.id, faculty.email, faculty.firstName, faculty.lastName, faculty.role, faculty.program, faculty.yearLevel, faculty.semester, faculty.academicYear],
+    [
+      faculty.id,
+      faculty.email,
+      faculty.firstName,
+      faculty.lastName,
+      faculty.role,
+      faculty.program,
+      faculty.yearLevel,
+      faculty.semester,
+      faculty.academicYear,
+    ],
   );
 }
 
@@ -81,7 +91,18 @@ export async function upsertSubjects(subjects: Array<Record<string, string | nul
     subjects.map((subject) =>
       db.runAsync(
         `INSERT OR REPLACE INTO subjects (id, code, title, schedule, room, program, yearLevel, semester, facultyId, academicYear) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [subject.id, subject.code, subject.title, subject.schedule, subject.room, subject.program, subject.yearLevel, subject.semester, subject.facultyId, subject.academicYear],
+        [
+          subject.id,
+          subject.code,
+          subject.title,
+          subject.schedule,
+          subject.room,
+          subject.program,
+          subject.yearLevel,
+          subject.semester,
+          subject.facultyId,
+          subject.academicYear,
+        ],
       ),
     ),
   );
@@ -92,7 +113,16 @@ export async function upsertStudents(students: Array<Record<string, string | nul
     students.map((student) =>
       db.runAsync(
         `INSERT OR REPLACE INTO students (id, studentId, firstName, lastName, program, yearLevel, semester, academicYear) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [student.id, student.studentId, student.firstName, student.lastName, student.program, student.yearLevel, student.semester, student.academicYear],
+        [
+          student.id,
+          student.studentId,
+          student.firstName,
+          student.lastName,
+          student.program,
+          student.yearLevel,
+          student.semester,
+          student.academicYear,
+        ],
       ),
     ),
   );
@@ -102,7 +132,10 @@ export async function upsertSubjectStudents(subjectId: string, studentIds: strin
   await db.runAsync(`DELETE FROM subject_students WHERE subjectId = ?`, [subjectId]);
   await Promise.all(
     studentIds.map((studentId) =>
-      db.runAsync(`INSERT OR IGNORE INTO subject_students (subjectId, studentId) VALUES (?, ?)`, [subjectId, studentId]),
+      db.runAsync(`INSERT OR IGNORE INTO subject_students (subjectId, studentId) VALUES (?, ?)`, [
+        subjectId,
+        studentId,
+      ]),
     ),
   );
 }
@@ -136,17 +169,42 @@ export interface AttendanceSaveResult extends AttendanceRecord {
 }
 
 export async function getAttendanceRecord(studentId: string, subjectId: string, date: string) {
-  return (await db.getFirstAsync(`SELECT * FROM attendance WHERE studentId = ? AND subjectId = ? AND date = ?`, [studentId, subjectId, date])) ?? null;
+  return (
+    (await db.getFirstAsync(
+      `SELECT * FROM attendance WHERE studentId = ? AND subjectId = ? AND date = ?`,
+      [studentId, subjectId, date],
+    )) ?? null
+  );
 }
 
-export async function saveAttendanceRecord(record: AttendanceRecord): Promise<AttendanceSaveResult> {
+export async function saveAttendanceRecord(
+  record: AttendanceRecord,
+): Promise<AttendanceSaveResult> {
   const existing = await getAttendanceRecord(record.studentId, record.subjectId, record.date);
   const id = existing ? existing.id : record.id;
   const previousStatus = existing?.status ?? null;
-  const syncStatus = existing && existing.status === record.status && existing.syncStatus === "synced" ? "synced" : "pending";
+  const syncStatus =
+    existing && existing.status === record.status && existing.syncStatus === "synced"
+      ? "synced"
+      : "pending";
   await db.runAsync(
     `INSERT OR REPLACE INTO attendance (id, studentId, studentName, subjectId, subjectCode, subjectName, facultyId, date, time, academicYear, semester, status, syncStatus, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, record.studentId, record.studentName, record.subjectId, record.subjectCode, record.subjectName, record.facultyId, record.date, record.time, record.academicYear, record.semester, record.status, syncStatus, record.updatedAt],
+    [
+      id,
+      record.studentId,
+      record.studentName,
+      record.subjectId,
+      record.subjectCode,
+      record.subjectName,
+      record.facultyId,
+      record.date,
+      record.time,
+      record.academicYear,
+      record.semester,
+      record.status,
+      syncStatus,
+      record.updatedAt,
+    ],
   );
   return { ...record, id, syncStatus, isUpdated: !!existing, previousStatus };
 }
@@ -164,7 +222,9 @@ export async function getSubjectRoster(subjectId: string, date: string) {
 }
 
 export async function getTodaySubjects(facultyId: string) {
-  return await db.getAllAsync(`SELECT * FROM subjects WHERE facultyId = ? ORDER BY code`, [facultyId]);
+  return await db.getAllAsync(`SELECT * FROM subjects WHERE facultyId = ? ORDER BY code`, [
+    facultyId,
+  ]);
 }
 
 export async function getTotalStudentsForFaculty(facultyId: string) {
@@ -179,7 +239,9 @@ export async function getTotalStudentsForFaculty(facultyId: string) {
 }
 
 export async function getPendingAttendance() {
-  return await db.getAllAsync(`SELECT * FROM attendance WHERE syncStatus = 'pending' OR syncStatus = 'failed' ORDER BY updatedAt ASC`);
+  return await db.getAllAsync(
+    `SELECT * FROM attendance WHERE syncStatus = 'pending' OR syncStatus = 'failed' ORDER BY updatedAt ASC`,
+  );
 }
 
 export async function updateAttendanceSyncStatus(id: string, syncStatus: AttendanceSyncStatus) {

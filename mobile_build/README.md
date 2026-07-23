@@ -18,6 +18,7 @@ This folder contains the Expo-based mobile client for the PIAT Academic Manageme
 ## Setup
 
 1. Install dependencies:
+
    ```bash
    cd mobile_build
    npm install
@@ -28,6 +29,7 @@ This folder contains the Expo-based mobile client for the PIAT Academic Manageme
    - Update the configuration file or environment variable used by the mobile client.
 
 3. Start the backend service:
+
    ```bash
    cd ../backend
    npm install

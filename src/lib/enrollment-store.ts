@@ -1,6 +1,13 @@
 import { useEffect, useState, useCallback } from "react";
-import { fetchEnrollments as apiFetchEnrollments, createEnrollments, fetchSubjects, fetchCurriculum } from "./api";
+import {
+  fetchEnrollments as apiFetchEnrollments,
+  createEnrollments,
+  fetchSubjects,
+  fetchCurriculum,
+} from "./api";
 import type { Subject } from "./subjects-store";
+
+const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
 export interface StudentEnrollment {
   id: string;
@@ -21,6 +28,24 @@ export const ENROLLMENT_EVENT = "bwest:enrollments-changed";
 function broadcastUpdate() {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(ENROLLMENT_EVENT));
+}
+
+let eventSource: EventSource | null = null;
+
+function ensureEnrollmentEventSource() {
+  if (typeof window === "undefined") return;
+  if (!eventSource) {
+    eventSource = new EventSource(`${API_BASE}/api/events/enrollments`);
+    eventSource.onmessage = () => {
+      window.dispatchEvent(new CustomEvent(ENROLLMENT_EVENT));
+    };
+    eventSource.onerror = () => {
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+      }
+    };
+  }
 }
 
 export async function enrollStudent(
@@ -48,6 +73,7 @@ export function useEnrollments() {
 
   useEffect(() => {
     refresh();
+    ensureEnrollmentEventSource();
     const onChange = () => {
       refresh();
     };
@@ -76,6 +102,7 @@ export function useStudentEnrollments(studentId: string) {
 
   useEffect(() => {
     refresh();
+    ensureEnrollmentEventSource();
     const onChange = () => {
       refresh();
     };
@@ -107,6 +134,7 @@ export function useEnrolledSubjects(studentId: string): Subject[] {
       }
     };
     refresh();
+    ensureEnrollmentEventSource();
     const onChange = () => {
       refresh();
     };
@@ -122,7 +150,7 @@ export function useEnrolledSubjects(studentId: string): Subject[] {
 export function useStudentSubjectsFromCurriculum(
   program: string,
   yearLevel: string,
-  semester: string
+  semester: string,
 ): Subject[] {
   const [subjects, setSubjects] = useState<Subject[]>([]);
 

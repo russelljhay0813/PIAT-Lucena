@@ -82,22 +82,25 @@ export function useAnnouncements() {
     }
   }, []);
 
-  const togglePin = useCallback(async (id: string) => {
-    try {
-      const current = items.find((a) => a.id === id);
-      if (!current) return;
-      const res = await fetch(`/api/announcements/${id}/pin`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pinned: !current.pinned }),
-      });
-      if (res.ok) {
-        broadcastUpdate();
+  const togglePin = useCallback(
+    async (id: string) => {
+      try {
+        const current = items.find((a) => a.id === id);
+        if (!current) return;
+        const res = await fetch(`/api/announcements/${id}/pin`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pinned: !current.pinned }),
+        });
+        if (res.ok) {
+          broadcastUpdate();
+        }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
-    }
-  }, [items]);
+    },
+    [items],
+  );
 
   return { items, loading, add, remove, togglePin, refresh };
 }

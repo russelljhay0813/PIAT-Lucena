@@ -19,11 +19,14 @@ function getPayMongoHeaders() {
 export const createPaymentLink = createServerFn({ method: "POST" })
   .inputValidator(
     z.object({
-      amount: z.number().min(100, "Minimum deposit is ₱100").max(500000, "Maximum deposit is ₱500,000"),
+      amount: z
+        .number()
+        .min(100, "Minimum deposit is ₱100")
+        .max(500000, "Maximum deposit is ₱500,000"),
       description: z.string().min(1).max(255),
       studentId: z.string().min(1).max(50),
       studentName: z.string().min(1).max(255),
-    })
+    }),
   )
   .handler(async ({ data }) => {
     try {
@@ -77,7 +80,7 @@ export const getPaymentStatus = createServerFn({ method: "POST" })
   .inputValidator(
     z.object({
       linkId: z.string().min(1).max(100),
-    })
+    }),
   )
   .handler(async ({ data }) => {
     try {
@@ -128,17 +131,14 @@ export const listPayments = createServerFn({ method: "POST" })
   .inputValidator(
     z.object({
       referencePrefix: z.string().max(100).optional(),
-    })
+    }),
   )
   .handler(async ({ data }) => {
     try {
-      const res = await fetch(
-        `${PAYMONGO_BASE_URL}/links?page[size]=10&page[number]=1`,
-        {
-          method: "GET",
-          headers: getPayMongoHeaders(),
-        }
-      );
+      const res = await fetch(`${PAYMONGO_BASE_URL}/links?page[size]=10&page[number]=1`, {
+        method: "GET",
+        headers: getPayMongoHeaders(),
+      });
 
       if (!res.ok) {
         console.error(`PayMongo list error [${res.status}]`);

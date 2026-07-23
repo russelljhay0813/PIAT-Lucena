@@ -55,15 +55,27 @@ function RegistrarProfile() {
           <div className="flex flex-col items-center text-center">
             <div className="relative">
               {photoPreview ? (
-                <img src={photoPreview} alt="Profile" className="h-24 w-24 rounded-full object-cover border-2 border-accent" />
+                <img
+                  src={photoPreview}
+                  alt="Profile"
+                  className="h-24 w-24 rounded-full object-cover border-2 border-accent"
+                />
               ) : (
                 <div className="flex h-24 w-24 items-center justify-center rounded-full bg-accent/10 text-2xl font-bold text-accent">
-                  {user.name.split(" ").map((n) => n[0]).join("")}
+                  {user.name
+                    .split(" ")
+                    .map((n) => n[0])
+                    .join("")}
                 </div>
               )}
               <label className="absolute bottom-0 right-0 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground">
                 <Camera className="h-4 w-4" />
-                <input type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handlePhotoChange}
+                />
               </label>
             </div>
             <h2 className="mt-3 font-heading text-base font-bold text-foreground">{user.name}</h2>
@@ -74,7 +86,9 @@ function RegistrarProfile() {
 
         <div className="rounded-xl border bg-card p-6 shadow-sm sm:col-span-2 space-y-6">
           <div>
-            <h3 className="font-heading text-sm font-semibold text-foreground mb-4">Edit Profile Information</h3>
+            <h3 className="font-heading text-sm font-semibold text-foreground mb-4">
+              Edit Profile Information
+            </h3>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>Registrar ID</Label>
@@ -105,15 +119,25 @@ function RegistrarProfile() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>Current Password</Label>
-                <Input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
+                <Input
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>New Password</Label>
-                <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+                <Input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                />
               </div>
             </div>
             <div className="mt-4">
-              <Button onClick={handleChangePassword} variant="outline">Change Password</Button>
+              <Button onClick={handleChangePassword} variant="outline">
+                Change Password
+              </Button>
             </div>
           </div>
         </div>

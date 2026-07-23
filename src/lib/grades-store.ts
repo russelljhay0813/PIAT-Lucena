@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback } from "react";
 import { fetchGrades, saveGrade, deleteGradeApi } from "./api";
 
+const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+
 export interface GradeEntry {
   id: string;
   studentId: string;
@@ -21,6 +23,24 @@ function broadcastUpdate() {
   window.dispatchEvent(new CustomEvent(EVENT));
 }
 
+let eventSource: EventSource | null = null;
+
+function ensureGradeEventSource() {
+  if (typeof window === "undefined") return;
+  if (!eventSource) {
+    eventSource = new EventSource(`${API_BASE}/api/events/grades`);
+    eventSource.onmessage = () => {
+      window.dispatchEvent(new CustomEvent(EVENT));
+    };
+    eventSource.onerror = () => {
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+      }
+    };
+  }
+}
+
 export async function addOrUpdateGrade(
   studentId: string,
   subjectId: string,
@@ -31,7 +51,16 @@ export async function addOrUpdateGrade(
   component?: string,
   status?: GradeEntry["status"],
 ): Promise<GradeEntry> {
-  const saved = await saveGrade({ studentId, subjectId, grade, remarks, period, type, component, status });
+  const saved = await saveGrade({
+    studentId,
+    subjectId,
+    grade,
+    remarks,
+    period,
+    type,
+    component,
+    status,
+  });
   if (period && type) {
     saved.period = period;
     saved.type = type;
@@ -73,6 +102,7 @@ export function useGrades() {
 
   useEffect(() => {
     refresh();
+    ensureGradeEventSource();
     const onChange = () => {
       refresh();
     };
@@ -103,6 +133,7 @@ export function useStudentGrades(studentId: string) {
 
   useEffect(() => {
     refresh();
+    ensureGradeEventSource();
     const onChange = () => {
       refresh();
     };

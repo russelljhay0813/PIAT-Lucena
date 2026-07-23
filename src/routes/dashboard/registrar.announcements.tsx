@@ -83,10 +83,14 @@ function RegistrarAnnouncements() {
 
   const audienceLabel = (a: string) => {
     switch (a) {
-      case "all": return "All Students";
-      case "student": return "Specific Students";
-      case "faculty": return "Faculty";
-      default: return a;
+      case "all":
+        return "All Students";
+      case "student":
+        return "Specific Students";
+      case "faculty":
+        return "Faculty";
+      default:
+        return a;
     }
   };
 
@@ -95,7 +99,9 @@ function RegistrarAnnouncements() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="font-heading text-xl font-bold text-foreground">Announcements</h1>
-          <p className="text-sm text-muted-foreground">Post announcements to students and faculty</p>
+          <p className="text-sm text-muted-foreground">
+            Post announcements to students and faculty
+          </p>
         </div>
         <Button onClick={() => setShowModal(true)}>
           <Plus className="h-4 w-4 mr-2" /> Post Announcement
@@ -120,10 +126,16 @@ function RegistrarAnnouncements() {
             <div className="flex items-start justify-between">
               <div>
                 <h3 className="font-heading text-sm font-semibold text-foreground">{a.title}</h3>
-                <p className="text-xs text-muted-foreground mt-1">{audienceLabel(a.audience || "all")}</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {audienceLabel(a.audience || "all")}
+                </p>
                 <p className="text-sm text-muted-foreground mt-2">{a.body}</p>
                 <p className="text-[10px] text-muted-foreground mt-2">
-                  Posted: {a.datePosted ? new Date(a.datePosted).toLocaleDateString() : new Date(a.createdAt).toLocaleDateString()} by {a.authorName}
+                  Posted:{" "}
+                  {a.datePosted
+                    ? new Date(a.datePosted).toLocaleDateString()
+                    : new Date(a.createdAt).toLocaleDateString()}{" "}
+                  by {a.authorName}
                 </p>
               </div>
               <button
@@ -149,7 +161,11 @@ function RegistrarAnnouncements() {
           <div className="grid gap-4 py-4">
             <div className="space-y-1.5">
               <Label>Title</Label>
-              <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Announcement title" />
+              <Input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Announcement title"
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Message</Label>
@@ -176,7 +192,9 @@ function RegistrarAnnouncements() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowModal(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setShowModal(false)}>
+              Cancel
+            </Button>
             <Button onClick={handleCreate}>Post</Button>
           </DialogFooter>
         </DialogContent>

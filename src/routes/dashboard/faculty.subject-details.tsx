@@ -50,14 +50,29 @@ function SubjectDetailsPage() {
           .filter((e) => e.subjectId === subject.id && e.status === "enrolled")
           .map((e) => e.studentId);
         const allStudents = await fetchStudents();
-        setEnrolledStudents(allStudents.filter((s) => enrolledForSubject.includes(s.studentId)));
+        const studentMap = new Map(allStudents.map((s) => [s.studentId, s]));
+        const mergedEnrolled = enrolledForSubject.map(
+          (studentId) =>
+            studentMap.get(studentId) ||
+            ({
+              studentId,
+              firstName: "Unknown",
+              lastName: "Student",
+              email: "",
+              program: "—",
+              yearLevel: "—",
+            } as StudentRegistration),
+        );
+        setEnrolledStudents(mergedEnrolled);
 
         const statusMap: Record<string, string> = {};
         for (const studentId of enrolledForSubject) {
           try {
             const records = await fetchAttendanceRecords(subject.id, undefined, studentId);
             const latest = records.sort((a, b) => b.updatedAt - a.updatedAt)[0];
-            statusMap[studentId] = latest ? latest.status.charAt(0).toUpperCase() + latest.status.slice(1) : "—";
+            statusMap[studentId] = latest
+              ? latest.status.charAt(0).toUpperCase() + latest.status.slice(1)
+              : "—";
           } catch {
             statusMap[studentId] = "—";
           }
@@ -217,8 +232,12 @@ function SubjectDetailsPage() {
                     </td>
                     <td className="py-2 pr-4 text-muted-foreground">{student.program || "—"}</td>
                     <td className="py-2 pr-4 text-muted-foreground">{student.yearLevel || "—"}</td>
-                     <td className="py-2 pr-4 text-muted-foreground">{attendanceStatus[student.studentId] || "—"}</td>
-                    <td className="py-2 pr-4 font-medium text-foreground">{getStudentGrade(student.studentId)}</td>
+                    <td className="py-2 pr-4 text-muted-foreground">
+                      {attendanceStatus[student.studentId] || "Not Recorded"}
+                    </td>
+                    <td className="py-2 pr-4 font-medium text-foreground">
+                      {getStudentGrade(student.studentId)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
